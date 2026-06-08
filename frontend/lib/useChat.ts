@@ -111,16 +111,31 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function getStoredChatSession(): string {
+  if (typeof window === "undefined") return "";
+  window.localStorage.removeItem(SID_KEY);
+  return window.sessionStorage.getItem(SID_KEY) || "";
+}
+
+function storeChatSession(sessionId: string): void {
+  if (typeof window === "undefined" || !sessionId) return;
+  window.sessionStorage.setItem(SID_KEY, sessionId);
+}
+
+export function clearStoredChatSession(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(SID_KEY);
+  window.localStorage.removeItem(SID_KEY);
+}
+
 export function useChat(token: string) {
   const [turns, dispatch] = useReducer(reducer, []);
   const abortRef = useRef<AbortController | null>(null);
   const sessionRef = useRef<string>("");
 
-  // 初始化：从 localStorage 恢复 session_id（刷新页面后延续会话）
+  // 初始化：只从当前浏览器会话恢复 sid，避免登出/换号后跨账号沿用。
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      sessionRef.current = localStorage.getItem(SID_KEY) || "";
-    }
+    sessionRef.current = getStoredChatSession();
   }, []);
 
   const send = useCallback(async (message: string) => {
@@ -141,12 +156,10 @@ export function useChat(token: string) {
       )) {
         switch (msg.event) {
           case "session": {
-            // 首帧回传 session_id：存 ref + localStorage，下一轮带回延续多轮
+            // 首帧回传 session_id：存 ref + sessionStorage，下一轮带回延续多轮
             const data = asRecord(msg.data);
             sessionRef.current = asString(data.session_id) || sessionRef.current;
-            if (typeof window !== "undefined" && sessionRef.current) {
-              localStorage.setItem(SID_KEY, sessionRef.current);
-            }
+            storeChatSession(sessionRef.current);
             break;
           }
           case "agent_step":
@@ -192,9 +205,7 @@ export function useChat(token: string) {
   const resetSession = useCallback(() => {
     abortRef.current?.abort();
     sessionRef.current = "";
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(SID_KEY);
-    }
+    clearStoredChatSession();
     dispatch({ type: "reset" });
   }, []);
 

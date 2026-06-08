@@ -149,9 +149,15 @@ def dispatch_route(state: AgentState):
     return fan_out(state)
 
 
-async def run_session(message: str, user_id: str = "anonymous", session_id: str = ""):
+async def run_session(
+    message: str,
+    user_id: str = "anonymous",
+    session_id: str = "",
+    tenant_id: str = "default",
+):
     settings = get_settings()
     multi_turn = getattr(settings, "enable_multi_turn", True)
+    scoped_session_id = ""
 
     # ① LOAD：从 Redis 读历史短期记忆（多轮）。关闭多轮 / 无 sid / Redis 挂 → 空（降级单轮）。
     prior_messages: list[dict] = []
@@ -159,7 +165,12 @@ async def run_session(message: str, user_id: str = "anonymous", session_id: str 
     if multi_turn and session_id:
         from reflexlearn.memory import session_store
 
-        hist = await session_store.load(session_id)
+        scoped_session_id = session_store.scoped_session_id(
+            session_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+        hist = await session_store.load(scoped_session_id)
         prior_messages = hist["messages"]
         summary_layers = hist["summary_layers"]
 
@@ -168,7 +179,7 @@ async def run_session(message: str, user_id: str = "anonymous", session_id: str 
     initial_state: AgentState = {
         "user_id": user_id,
         "session_id": session_id,
-        "acl": {"user_id": user_id, "tenant_id": "default", "visibility": ["public"]},
+        "acl": {"user_id": user_id, "tenant_id": tenant_id, "visibility": ["public"]},
         "messages": prior_messages + [{"role": "user", "content": message}],
         "summary_layers": summary_layers,
         "learner_profile": {},
@@ -200,7 +211,7 @@ async def run_session(message: str, user_id: str = "anonymous", session_id: str 
         yield event
 
     # ② PERSIST：写回 Redis（全程降级，不影响已 yield 的响应）。
-    if multi_turn and session_id:
+    if multi_turn and scoped_session_id:
         try:
             from reflexlearn.memory import session_store
             from reflexlearn.memory.recursive_summary import add_and_compress
@@ -221,7 +232,7 @@ async def run_session(message: str, user_id: str = "anonymous", session_id: str 
                 new_layers = await add_and_compress(summary_layers, overflow, llm)
 
             await session_store.persist(
-                session_id,
+                scoped_session_id,
                 messages=full_messages,
                 summary_layers=new_layers,
             )

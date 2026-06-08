@@ -108,3 +108,13 @@ async def test_persist_sets_ttl_and_truncates_messages(monkeypatch):
     assert len(stored["messages"]) == session_store.MAX_PERSISTED_MESSAGES
     # 截断保留的是最近 N 条
     assert stored["messages"][-1] == {"role": "user", "content": "49"}
+
+
+def test_scoped_session_id_is_bound_to_user_and_tenant():
+    base = session_store.scoped_session_id("sid", user_id="u1", tenant_id="t1")
+
+    assert base
+    assert base == session_store.scoped_session_id("sid", user_id="u1", tenant_id="t1")
+    assert base != session_store.scoped_session_id("sid", user_id="u2", tenant_id="t1")
+    assert base != session_store.scoped_session_id("sid", user_id="u1", tenant_id="t2")
+    assert session_store.scoped_session_id("", user_id="u1", tenant_id="t1") == ""

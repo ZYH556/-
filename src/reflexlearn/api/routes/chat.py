@@ -24,13 +24,13 @@ class ChatRequest(BaseModel):
     session_id: str = ""
 
 
-async def event_stream(message: str, user_id: str, session_id: str):
-    # 首帧回传 session_id：前端存 localStorage，下一轮带回以延续多轮会话
+async def event_stream(message: str, user_id: str, tenant_id: str, session_id: str):
+    # 首帧回传原始 session_id：前端仅在当前浏览器会话内保存，服务端存储另做用户/租户隔离。
     yield sse_event("session", {"session_id": session_id})
     yield sse_event("agent_step", {"step": "session_start", "message": message})
 
     try:
-        async for event in run_session(message, user_id, session_id):
+        async for event in run_session(message, user_id, session_id, tenant_id):
             for node_name, node_output in event.items():
                 if node_name == "profile":
                     yield sse_event("agent_step", {"step": "profile", "detail": "画像构建完成"})
@@ -142,7 +142,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(get_current_user)):
     # session_id 缺省由后端生成（uuid hex）；前端首轮不带、后续带回延续会话
     session_id = req.session_id or uuid.uuid4().hex
     return StreamingResponse(
-        event_stream(req.message, user.user_id, session_id),
+        event_stream(req.message, user.user_id, user.tenant_id, session_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -68,9 +68,13 @@ def _inject_fake_llm(monkeypatch):
     monkeypatch.setattr(graph_mod, "build_graph", lambda *a, **k: real_build(_FakeLLM()))
 
 
-async def _run_collect(message, user_id, session_id):
+def _scoped(sid: str, user_id: str, tenant_id: str = "default") -> str:
+    return session_store.scoped_session_id(sid, user_id=user_id, tenant_id=tenant_id)
+
+
+async def _run_collect(message, user_id, session_id, tenant_id="default"):
     seen = []
-    async for event in run_session(message, user_id, session_id):
+    async for event in run_session(message, user_id, session_id, tenant_id):
         seen.extend(event.keys())
     return seen
 
@@ -84,14 +88,15 @@ async def test_multi_turn_accumulates_history(monkeypatch):
 
     # 第一轮
     await _run_collect("线性回归", "u1", "sid-A")
-    after_first = mem.data["sid-A"]["messages"]
+    scoped = _scoped("sid-A", "u1")
+    after_first = mem.data[scoped]["messages"]
     assert len(after_first) == 2  # user + assistant 轻量摘要
     assert after_first[0] == {"role": "user", "content": "线性回归"}
     assert after_first[1]["role"] == "assistant"
 
     # 第二轮（同 sid）：载入第一轮历史并累积
     await _run_collect("梯度下降", "u1", "sid-A")
-    after_second = mem.data["sid-A"]["messages"]
+    after_second = mem.data[scoped]["messages"]
     assert len(after_second) == 4  # 累积：u1 a1 u2 a2
     assert after_second[0]["content"] == "线性回归"  # 第一轮 user 仍在
     assert after_second[2]["content"] == "梯度下降"  # 第二轮 user
@@ -109,10 +114,44 @@ async def test_sessions_are_isolated(monkeypatch):
     await _run_collect("神经网络", "u2", "sid-B")
 
     # 两个 session 各自独立，互不串台
-    assert mem.data["sid-A"]["messages"][0]["content"] == "线性回归"
-    assert mem.data["sid-B"]["messages"][0]["content"] == "神经网络"
-    assert len(mem.data["sid-A"]["messages"]) == 2
-    assert len(mem.data["sid-B"]["messages"]) == 2
+    sid_a = _scoped("sid-A", "u1")
+    sid_b = _scoped("sid-B", "u2")
+    assert mem.data[sid_a]["messages"][0]["content"] == "线性回归"
+    assert mem.data[sid_b]["messages"][0]["content"] == "神经网络"
+    assert len(mem.data[sid_a]["messages"]) == 2
+    assert len(mem.data[sid_b]["messages"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_same_session_id_is_isolated_between_users(monkeypatch):
+    _inject_fake_llm(monkeypatch)
+    mem = _MemStore()
+    monkeypatch.setattr(session_store, "load", mem.load)
+    monkeypatch.setattr(session_store, "persist", mem.persist)
+
+    await _run_collect("线性回归", "u1", "shared-sid")
+    await _run_collect("神经网络", "u2", "shared-sid")
+
+    histories = [item["messages"] for item in mem.data.values()]
+    assert len(histories) == 2
+    assert sorted(history[0]["content"] for history in histories) == ["神经网络", "线性回归"]
+    assert all(len(history) == 2 for history in histories)
+
+
+@pytest.mark.asyncio
+async def test_same_session_id_is_isolated_between_tenants(monkeypatch):
+    _inject_fake_llm(monkeypatch)
+    mem = _MemStore()
+    monkeypatch.setattr(session_store, "load", mem.load)
+    monkeypatch.setattr(session_store, "persist", mem.persist)
+
+    await _run_collect("租户一问题", "u1", "shared-sid", tenant_id="tenant-a")
+    await _run_collect("租户二问题", "u1", "shared-sid", tenant_id="tenant-b")
+
+    histories = [item["messages"] for item in mem.data.values()]
+    assert len(histories) == 2
+    assert sorted(history[0]["content"] for history in histories) == ["租户一问题", "租户二问题"]
+    assert all(len(history) == 2 for history in histories)
 
 
 @pytest.mark.asyncio
@@ -163,8 +202,9 @@ async def test_long_history_triggers_recursive_summary(monkeypatch):
     """预置超窗口历史：persist 时 overflow 触发递归摘要（无凭证 → 规则截断，layers 非空）。"""
     _inject_fake_llm(monkeypatch)
     mem = _MemStore()
+    scoped = _scoped("sid-L", "u1")
     # 14 条历史 > recent_turns(6)*2=12 → 本轮再 +2 = 16，溢出 4 条进摘要
-    mem.data["sid-L"] = {
+    mem.data[scoped] = {
         "messages": [
             {"role": "user" if i % 2 == 0 else "assistant", "content": f"轮次{i}"}
             for i in range(14)
@@ -175,4 +215,4 @@ async def test_long_history_triggers_recursive_summary(monkeypatch):
     monkeypatch.setattr(session_store, "persist", mem.persist)
 
     await _run_collect("新问题", "u1", "sid-L")
-    assert len(mem.data["sid-L"]["summary_layers"]) >= 1  # 触发了摘要压缩
+    assert len(mem.data[scoped]["summary_layers"]) >= 1  # 触发了摘要压缩

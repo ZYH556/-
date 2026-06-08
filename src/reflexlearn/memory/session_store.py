@@ -3,7 +3,8 @@
 设计要点（docs/03 §1/§7 的落地，含刻意差异）：
 - 所有 Redis I/O 收敛到本模块，便于单测 monkeypatch —— tests/conftest.py 的 hermetic
   守卫不拦 get_redis，集成测试只需 patch 本模块的 load/persist 即可 hermetic。
-- 单 key（session:{sid}）存 JSON：{messages, summary_layers}，避免多 key 一致性问题。
+- 单 key 存 JSON：{messages, summary_layers}，避免多 key 一致性问题。
+- API 层传入的原始 session_id 必须先经 scoped_session_id 绑定 user/tenant，再用于 Redis。
 - 全程 try/except：Redis 不可用 / key 不存在 / JSON 损坏 → load 返回空、persist 返回
   False，多轮静默退化单轮，绝不报错中断（项目铁律）。
 - summary_layers 随 session 持久化（per-session 状态归属），绝不放 MemoryManager 单例
@@ -11,6 +12,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 
@@ -26,6 +28,15 @@ MAX_PERSISTED_MESSAGES = 40
 
 def _empty() -> dict:
     return {"messages": [], "summary_layers": []}
+
+
+def scoped_session_id(session_id: str, *, user_id: str, tenant_id: str) -> str:
+    """把客户端 sid 派生成绑定用户和租户的内部 sid，避免跨账号复用会话历史。"""
+    if not session_id:
+        return ""
+    raw = "\0".join([tenant_id or "default", user_id or "anonymous", session_id])
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"v2:{digest}"
 
 
 async def load(session_id: str) -> dict:

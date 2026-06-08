@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { clearAuth, getStoredAuth, login } from "@/lib/auth";
+import { clearStoredChatSession } from "@/lib/useChat";
 import type { AuthToken } from "@/lib/types";
 import { getErrorMessage } from "@/lib/apiClient";
 import { Workspace } from "./Workspace";
@@ -37,6 +38,7 @@ export function AuthGate() {
 
   function logout() {
     clearAuth();
+    clearStoredChatSession();
     setAuth(null);
     setStatus("idle");
   }
