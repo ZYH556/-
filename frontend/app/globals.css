@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+html,
+body {
+  height: 100%;
+}
+
+.markdown {
+  @apply text-sm leading-relaxed text-slate-700;
+}
+.markdown h1 {
+  @apply mb-2 mt-4 text-lg font-bold text-slate-900;
+}
+.markdown h2 {
+  @apply mb-2 mt-4 text-base font-bold text-slate-900;
+}
+.markdown h3 {
+  @apply mb-1.5 mt-3 font-semibold text-slate-900;
+}
+.markdown p {
+  @apply my-2;
+}
+.markdown ul {
+  @apply my-2 list-disc pl-5;
+}
+.markdown ol {
+  @apply my-2 list-decimal pl-5;
+}
+.markdown li {
+  @apply my-1;
+}
+.markdown a {
+  @apply text-indigo-600 underline;
+}
+.markdown strong {
+  @apply font-semibold text-slate-900;
+}
+.markdown blockquote {
+  @apply my-2 border-l-4 border-slate-300 pl-3 text-slate-500;
+}
+.markdown :not(pre) > code {
+  @apply rounded bg-slate-100 px-1 py-0.5 text-[0.85em] text-rose-600;
+}
+.markdown table {
+  @apply my-2 w-full border-collapse text-xs;
+}
+.markdown th,
+.markdown td {
+  @apply border border-slate-300 px-2 py-1 text-left;
+}
+.markdown th {
+  @apply bg-slate-50 font-semibold;
+}

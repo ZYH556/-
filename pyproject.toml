@@ -1,0 +1,63 @@
+[project]
+name = "reflexlearn"
+version = "0.1.0"
+description = "ReflexLearn Agent: 基于反思记忆的个性化学习多智能体系统"
+requires-python = ">=3.11"
+readme = "README.md"
+
+dependencies = [
+    # 框架
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    # Agent 编排
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    # LLM
+    "litellm>=1.40",
+    # 向量 / 图 / 关系
+    "qdrant-client>=1.9",
+    "asyncpg>=0.29",
+    "redis[hiredis]>=5.0",
+    # 数据处理
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "python-multipart>=0.0.9",
+    # 可观测
+    "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+graph = ["neo4j>=5.0"]
+worker = ["celery[redis]>=5.4"]
+spark = ["pyspark>=3.5"]
+# M4 数据工程：文档解析（缺库即降级）/ 增量消息 / 原始存储
+data = ["pymupdf>=1.24", "python-docx>=1.1", "python-pptx>=0.6", "beautifulsoup4>=4.12", "jieba>=0.42"]
+kafka = ["aiokafka>=0.10"]
+storage = ["minio>=7.2"]
+embedding = ["sentence-transformers>=3.0"]
+mem0 = ["mem0ai>=0.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reflexlearn"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

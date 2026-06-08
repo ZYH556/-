@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/.tmp_*.json
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime output
+logs/
+*.log
+
+# Local tool caches
+.playwright-mcp/
+.omx/
+.spec-workflow/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
