@@ -110,7 +110,7 @@ discuss/                          计划、评审、阶段路线讨论文档
 
 最近一次回报的验证结果：
 
-- `bash scripts/test_unit.sh`：312 passed, 2 warnings。
+- `bash scripts/test_unit.sh`：315 passed, 2 warnings。
 - `bash scripts/build_frontend.sh`：通过。
 - `bash -n scripts/*.sh`：通过。
 - `bash scripts/check_api_security.sh`：通过。
@@ -118,7 +118,7 @@ discuss/                          计划、评审、阶段路线讨论文档
 ## 已知限制
 
 - 当前登录是演示账号和 HMAC token，不是数据库用户体系。
-- 会话 `session_id` 仍需要继续做用户/租户绑定，避免跨用户复用风险。
+- 多轮会话已按用户/租户派生内部会话 key；仍需继续补审计、会话管理页和服务端会话撤销能力。
 - 上传已有基础 guard，但还没有隔离区、病毒扫描、内容审核、签名 URL、防盗链和对象级访问控制。
 - AI 输入输出还没有统一 Safety Gateway，不能把提示词限制视为安全边界。
 - 视频任务和知识资源仍需补对象归属校验、审计日志和更细粒度权限。
@@ -136,6 +136,7 @@ discuss/                          计划、评审、阶段路线讨论文档
 - [工程化与目录结构详细设计](docs/07-工程化与目录结构详细设计.md)
 - [评测报告与消融结果](docs/08-评测报告与消融结果.md)
 - [启动与发布说明](docs/09-启动与发布说明.md)
+- [开发进度与交接审查说明](docs/10-开发进度与交接审查说明.md)
 
 ## GitHub 发布与后续更新
 
