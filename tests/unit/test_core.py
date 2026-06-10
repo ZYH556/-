@@ -76,6 +76,15 @@ def test_skill_base():
 def test_run_debug_scripts_have_logging_contract():
     root = __import__("pathlib").Path(__file__).resolve().parents[2]
     scripts = root / "scripts"
+    moved = {
+        "start_core.sh": "ops/start_core.sh",
+        "start_graph.sh": "ops/start_graph.sh",
+        "start_bigdata.sh": "ops/start_bigdata.sh",
+        "start_full.sh": "ops/start_full.sh",
+        "stop_all.sh": "ops/stop_all.sh",
+        "init_all.sh": "init/init_all.sh",
+        "check_bigdata.sh": "checks/infra/check_bigdata.sh",
+    }
     required = [
         "start_core.sh",
         "start_graph.sh",
@@ -99,10 +108,17 @@ def test_run_debug_scripts_have_logging_contract():
         text = path.read_text(encoding="utf-8")
         assert 'source "$SCRIPT_DIR/_lib.sh"' in text
         assert "ensure_logs" in text
-        assert 'tee -a "$LOG_DIR/' in text
+        if name in moved:
+            impl = scripts / moved[name]
+            assert f'exec "$SCRIPT_DIR/{moved[name]}" "$@"' in text
+            impl_text = impl.read_text(encoding="utf-8")
+            assert 'source "$SCRIPTS_ROOT/_lib.sh"' in impl_text
+            assert 'tee -a "$LOG_DIR/' in impl_text
+        else:
+            assert 'tee -a "$LOG_DIR/' in text
 
-    assert "--profile bigdata" in (scripts / "start_full.sh").read_text(encoding="utf-8")
-    assert "--profile bigdata" in (scripts / "stop_all.sh").read_text(encoding="utf-8")
+    assert "--profile bigdata" in (scripts / "ops/start_full.sh").read_text(encoding="utf-8")
+    assert "--profile bigdata" in (scripts / "ops/stop_all.sh").read_text(encoding="utf-8")
 
 
 def test_bigdata_images_use_configured_mirror_prefix():
