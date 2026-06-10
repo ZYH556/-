@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme {
   /* Hero 暗色主题 → Tailwind 颜色 token（bg-background / text-foreground 等） */
   --color-background: hsl(201 100% 13%);
@@ -32,7 +34,7 @@
 }
 
 :root {
-  --font-display: 'Instrument Serif', serif;
+  --font-display: 'Instrument Serif', 'Noto Serif SC', serif;
   --font-body: 'Inter', sans-serif;
   /* Hero 暗色主题（HSL 三元组，shadcn 惯例） */
   --background: 201 100% 13%;
