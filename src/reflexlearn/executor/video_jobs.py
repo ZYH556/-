@@ -20,6 +20,7 @@ import uuid
 from pydantic import BaseModel
 
 from reflexlearn.common.config import get_settings
+from reflexlearn.observability.metrics import observe_video_job
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ class SeeDanceUnavailable(RuntimeError):
 
 class VideoJob(BaseModel):
     job_id: str
+    user_id: str = ""
+    tenant_id: str = "default"
     status: str = "pending"  # pending | running | done | degraded | failed
     storyboard: str = ""
     video_url: str | None = None
@@ -119,6 +122,7 @@ async def process_job(job_id: str, prompt: str, *, store: JobStore, settings=Non
         return None
     job.status = "running"
     await store.save(job)
+    observe_video_job(job.status)
     try:
         url = await call_seedance(prompt, settings)
         job.status = "done"
@@ -130,17 +134,26 @@ async def process_job(job_id: str, prompt: str, *, store: JobStore, settings=Non
         job.status = "failed"
         job.error = type(e).__name__
     await store.save(job)
+    observe_video_job(job.status)
     return job
 
 
 async def submit_video_job(
     *, storyboard: str, prompt: str | None = None, store: JobStore | None = None,
-    settings=None, autostart: bool = True,
+    settings=None, autostart: bool = True, user_id: str = "", tenant_id: str = "default",
 ) -> VideoJob:
     """创建视频作业（pending）并后台触发生成。autostart=False 仅创建不跑后台（单测用）。"""
     store = store or get_job_store()
-    job = VideoJob(job_id=uuid.uuid4().hex, status="pending", storyboard=storyboard, created_at=time.time())
+    job = VideoJob(
+        job_id=uuid.uuid4().hex,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        status="pending",
+        storyboard=storyboard,
+        created_at=time.time(),
+    )
     await store.save(job)
+    observe_video_job(job.status)
     if autostart:
         asyncio.create_task(process_job(job.job_id, prompt or storyboard, store=store, settings=settings))
     return job

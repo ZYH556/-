@@ -3,7 +3,7 @@
 降级铁律：aiokafka 已装但 broker 可能未起。
 - **生产端**：broker 不可用 → `publish_event` 返回 False、`enqueue_document` 返回 None，由 route 落
   同步 `ingest_document`（用户仍立即得结果，绝不因 broker 挂而上传失败）。
-- **消费端**：独立进程（`scripts/kafka_consumer.py`），broker 挂则启动即报错退出，不影响后端主进程。
+- **消费端**：独立进程（`scripts/jobs/data/kafka_consumer.py`），broker 挂则启动即报错退出，不影响后端主进程。
 
 依赖注入：`publish_event` / `handle_event` 的 producer / qdrant / pg_pool / neo4j 由调用方传入，
 单测注入假对象——aiokafka 已装故 import 不降级，但**绝不真连 broker**（会超时卡死）。

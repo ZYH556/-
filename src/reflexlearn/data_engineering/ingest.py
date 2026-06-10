@@ -188,7 +188,7 @@ async def ingest_document(
     # 7) 关键词索引失效：新 chunk 立即可被 BM25 关键词路命中（写→读闭环）
     if qdrant_written:
         try:
-            from reflexlearn.rag.keyword import KeywordIndex
+            from reflexlearn.rag.retrieval.keyword import KeywordIndex
 
             KeywordIndex.invalidate()
         except Exception:

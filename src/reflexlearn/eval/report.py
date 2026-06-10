@@ -13,6 +13,7 @@ def report_to_markdown(report: EvalReport) -> str:
         f"- 任务完成率：{_pct(report.task_completion_rate)}",
         f"- 平均资源覆盖率：{_pct(report.avg_resource_coverage)}",
         f"- 平均综合分：{report.avg_overall:.4f}",
+        f"- Judge 来源：{_judge_source(report)}",
         "",
         "## 总览指标",
         "",
@@ -27,8 +28,8 @@ def report_to_markdown(report: EvalReport) -> str:
         "",
         "## 用例明细",
         "",
-        "| Case | 完成 | 资源类型 | 资源覆盖率 | 平均分 | 延迟(ms) | 错误 |",
-        "|---|---:|---|---:|---:|---:|---|",
+        "| Case | 完成 | 资源类型 | 资源覆盖率 | 平均分 | 延迟(ms) | 最后事件 | 最后摘要 | 错误 |",
+        "|---|---:|---|---:|---:|---:|---|---|---|",
     ]
     for result in report.results:
         lines.append(_case_row(result))
@@ -44,8 +45,8 @@ def comparison_to_markdown(reports: list[EvalReport]) -> str:
     lines = [
         "# ReflexLearn 消融对比报告",
         "",
-        "| Strategy | 用例数 | 任务完成率 | resource_coverage | correctness | profile_match | completeness | format_quality | overall | Δoverall |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Strategy | Judge 来源 | 用例数 | 任务完成率 | resource_coverage | correctness | profile_match | completeness | format_quality | overall | Δoverall |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     base = reports[0].avg_overall if reports else 0.0
     for report in reports:
@@ -53,6 +54,7 @@ def comparison_to_markdown(reports: list[EvalReport]) -> str:
         lines.append(
             "| "
             f"{report.strategy} | "
+            f"{_judge_source(report)} | "
             f"{report.total_cases} | "
             f"{_pct(report.task_completion_rate)} | "
             f"{_pct(report.avg_resource_coverage)} | "
@@ -76,9 +78,11 @@ def _case_row(result: EvalResult) -> str:
     avg_score = _avg([score.overall for score in result.resource_scores])
     done = "是" if result.task_completed else "否"
     error = result.error or "-"
+    last_event = result.last_event or "-"
+    last_summary = result.event_trace[-1].summary if result.event_trace else "-"
     return (
         f"| {result.case_id} | {done} | {types} | {_pct(result.resource_coverage)} | "
-        f"{avg_score:.4f} | {result.latency_ms} | {error} |"
+        f"{avg_score:.4f} | {result.latency_ms} | {last_event} | {last_summary or '-'} | {error} |"
     )
 
 
@@ -88,3 +92,12 @@ def _avg(values: list[float]) -> float:
 
 def _pct(value: float) -> str:
     return f"{value * 100:.1f}%"
+
+
+def _judge_source(report: EvalReport) -> str:
+    scores = [score for result in report.results for score in result.resource_scores]
+    if not scores:
+        return "无评分"
+    if all(score.reasoning.startswith("rule:") for score in scores):
+        return "规则降级"
+    return "LLM 或混合"

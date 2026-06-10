@@ -41,6 +41,14 @@ class JudgeScore(BaseModel):
     reasoning: str = ""
 
 
+class EvalTraceEvent(BaseModel):
+    sequence: int
+    node: str
+    elapsed_ms: int = 0
+    keys: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
 class EvalResult(BaseModel):
     case_id: str
     strategy: str
@@ -50,6 +58,8 @@ class EvalResult(BaseModel):
     resource_scores: list[JudgeScore] = Field(default_factory=list)
     latency_ms: int = 0
     error: str = ""
+    last_event: str = ""
+    event_trace: list[EvalTraceEvent] = Field(default_factory=list)
 
 
 class EvalReport(BaseModel):

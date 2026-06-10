@@ -37,7 +37,10 @@ def get_qdrant():
         from qdrant_client import AsyncQdrantClient
 
         settings = get_settings()
-        _qdrant = AsyncQdrantClient(url=settings.qdrant_url)
+        _qdrant = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            timeout=settings.qdrant_timeout_s,
+        )
     return _qdrant
 
 

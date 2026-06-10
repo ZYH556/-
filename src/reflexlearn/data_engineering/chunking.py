@@ -1,7 +1,7 @@
 """结构感知分块：在 section 边界内按段落聚合到 max_chars，超长单段字符滑窗（带 overlap）。
 
 承接 parsing 的 Section：同一 heading 下的文本聚合成块、heading 随块带出，跨 section 不合并
-（保留文档结构语义）。段落聚合算法与 scripts/ingest_knowledge._chunk_markdown 一致，避免双份实现漂移。
+（保留文档结构语义）。段落聚合算法与 scripts/jobs/data/ingest_knowledge._chunk_markdown 一致，避免双份实现漂移。
 """
 from __future__ import annotations
 

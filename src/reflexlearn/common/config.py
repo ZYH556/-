@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     qwen_api_key: str = ""
     anthropic_api_key: str = ""
+    openai_compat_api_key: str = ""      # OpenAI-compatible 中转站 key（如 timicc）
+    openai_compat_base_url: str = ""     # 中转站 base URL；按服务要求填 https://... 或 https://.../v1
+    openai_compat_model: str = ""        # 中转站模型名，如 gpt-5.5；网关会规范化为 openai/{model}
+    openai_compat_wire_api: str = "chat_completions"  # chat_completions 或 responses（timicc 走 /responses）
+    llm_request_timeout_s: float = 30.0  # 单次 LLM 外呼超时秒数；中转站无响应时快速降级
 
     kafka_bootstrap_servers: str = "127.0.0.1:19092"
 
@@ -25,16 +30,25 @@ class Settings(BaseSettings):
     # —— 三级记忆 / 多轮会话（6.2）——
     enable_multi_turn: bool = True       # kill-switch：False 即彻底退化单轮（跳过 Redis load/persist）
     session_ttl: int = 7200              # Redis session:{sid} TTL 秒（docs §7 = 2h）
+    profile_ttl: int = 30 * 86400        # Redis profile:{tenant}:{user} TTL 秒（跨 session 画像沉淀）
+    enable_promote: bool = False         # 会话结束是否自动升迁 Reflexion 经验；默认关，避免无依赖时空转
     summary_model: str = ""              # summary 任务显式模型覆盖（空 = 按 provider 自动选便宜档）
     summary_recent_turns: int = 6        # trim 保留最近 N 轮原文
     context_max_chars: int = 6000        # trim 总字符预算
     summary_max_layer_chars: int = 800   # 递归摘要单层字符上限
     summary_max_depth: int = 3           # 递归摘要最大层数
+    enable_memory_consolidation: bool = True  # 召回命中回写 hit_count，作为记忆巩固信号
+    enable_forgetting: bool = False       # 离线遗忘作业开关；默认关，避免误删经验
+    memory_ttl_days: int = 90             # 经验超过此天数且低复用时允许遗忘
+    memory_forget_min_hits: int = 1       # hit_count 低于此阈值才允许遗忘
+    enable_graph_autogrow: bool = False   # 会话结束自动抽概念入图；默认关
 
     embedding_model: str = "BAAI/bge-large-zh-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     knowledge_collection: str = "knowledge_chunks"
     retrieve_top_k: int = 5
+    qdrant_timeout_s: float = 3.0       # Qdrant 单次请求超时；评测环境不可用时快速降级
+    rag_route_timeout_s: float = 3.0    # RAG 单路召回超时；避免真实评测被外部依赖拖死
 
     # —— M4 数据工程 / 写链路 ——
     enable_contextual: bool = False      # 上传时为每 chunk 生成 LLM 定位摘要（contextual retrieval）；
@@ -52,6 +66,23 @@ class Settings(BaseSettings):
     minio_bucket: str = "reflexlearn-raw"
     minio_secure: bool = False
     clean_min_chars: int = 30            # 批清洗质量过滤：内容短于此视为噪声丢弃（docs §6.1 取 100，小语料放宽）
+
+    # —— 阶段二 4.1 可观测：Prometheus 指标导出与应用埋点 ——
+    enable_metrics: bool = True          # False 时保留 /metrics，但业务路径不新增指标样本
+    enable_generator_diagnostics: bool = False  # 真实评测调试：记录 generate_resource 内部阶段耗时
+    eval_force_collab_mode: str = ""     # M5 评测隔离变量：central/pipeline/debate；空字符串表示不强制
+    enable_llm_profile: bool = True      # False 时画像抽取走规则，用于真实评测减少无关 LLM 外呼
+    enable_llm_quality_check: bool = True  # False 时质量检查走规则，用于真实评测减少内部额外 LLM 外呼
+    eval_skip_path_plan: bool = False    # M5 资源质量评测跳过终态路径规划，避免无关 LLM 外呼拖慢
+    enable_llm_planner: bool = True      # False 时 Planner 走规则规划，用于评测隔离资源生成变量
+    enable_llm_generation: bool = True   # False 时生成 Skill 走离线降级，LLM key 仍可留给元认知/Judge
+    eval_judge_max_resources: int = 0    # 评测时最多送 Judge 的资源数；0 表示不限制
+    enable_metacognition: bool = False   # 元认知 self-refine 默认关，开启后才插入主链路
+    max_self_refine: int = 1             # 单轮最多自我改进重试次数，防无限循环
+    metacognition_max_reviews: int = 1   # 单轮最多审查资源数，默认只审最值得改的 1 个
+    metacognition_timeout_s: float = 12.0  # 元认知单资源审查超时，超时即 noop 降级
+    metacognition_min_score: float = 0.7   # 低于该分数才触发 self-refine
+    metacognition_content_chars: int = 1200  # 送审资源内容截断长度，控制 token 和延迟
 
     # —— M4-E 多模态视频（SeeDance）——
     enable_seedance: bool = False        # 视频作业是否调真实 SeeDance（关闭 / 无 key → 降级 storyboard 占位）
@@ -71,6 +102,20 @@ class Settings(BaseSettings):
     auth_demo_password: str = "reflexlearn-admin"
     auth_demo_tenant_id: str = "default"
     auth_demo_role: str = "admin"
+    # —— W3-A: HttpOnly Cookie 会话 ——
+    session_cookie_name: str = "reflexlearn_session"
+    session_cookie_samesite: str = "lax"  # lax/strict/none；生产 Secure 由 app_env 推导
+    # —— W3-B: CSRF / 登录限流 ——
+    csrf_cookie_name: str = "reflexlearn_csrf"
+    enable_login_rate_limit: bool = True
+    login_rate_limit: int = 5          # 窗口内最大登录尝试次数
+    login_rate_window_s: int = 300     # 限流窗口秒数（默认 5 分钟）
+    # —— W3-C: AI Safety Gateway ——
+    enable_safety_gateway: bool = True   # 输入闸门 + 输出脱敏；规则优先，正常请求不受影响
+    enable_safety_llm: bool = False      # LLM safety checker（默认关，无 key/超时退规则）
+    # —— W3-D: 上传隔离 / 签名 URL ——
+    enable_upload_quarantine: bool = True  # 上传先入隔离区扫描，拒绝可执行/危险 HTML 内容
+    signed_url_ttl_s: int = 300            # 签名 URL 有效期秒数（短 TTL）
 
     cors_allow_origins: str = (
         "http://localhost:3000,http://localhost:3001,"
