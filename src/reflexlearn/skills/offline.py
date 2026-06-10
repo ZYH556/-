@@ -15,6 +15,14 @@ def _concept(spec: dict) -> str:
     return ", ".join(spec.get("concept_ids", ["该主题"]))
 
 
+def _refine_block(spec: dict) -> str:
+    issues = [str(item).strip() for item in spec.get("previous_issues", []) if str(item).strip()]
+    if not issues:
+        return ""
+    notes = "\n".join(f"- {item}" for item in issues)
+    return f"\n\n### 元认知修复建议\n{notes}"
+
+
 def offline_content(kind: str, spec: dict) -> str:
     """按资源类型产出离线占位内容。kind ∈ {doc, quiz, mindmap, code, reading, video}。"""
     concept = _concept(spec)
@@ -94,5 +102,6 @@ def offline_content(kind: str, spec: dict) -> str:
         "- 核心思想\n"
         "- 典型应用场景\n"
         "- 实践注意事项\n\n"
+        f"{_refine_block(spec)}\n\n"
         "> 当前为离线降级内容，配置 LLM API Key 后将生成结构化的完整讲解文档。"
     )

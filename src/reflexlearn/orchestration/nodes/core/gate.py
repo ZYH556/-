@@ -27,6 +27,12 @@ def gate_route(state: AgentState) -> str:
     completed_ids = {c["task_id"] for c in completed if c.get("status") == "passed"}
     all_done = all(t["task_id"] in completed_ids for t in plan)
     if all_done:
+        settings = get_settings()
+        if (
+            settings.enable_metacognition
+            and state.get("self_refine_count", 0) < settings.max_self_refine
+        ):
+            return "metacognition"
         return "assemble"
 
     return "assemble"

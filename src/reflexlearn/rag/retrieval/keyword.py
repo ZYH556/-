@@ -7,10 +7,11 @@ ACL 无法像 qdrant 那样下推，故在 search 出结果后用 acl.acl_check 
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 
-from reflexlearn.rag.acl import acl_check
+from reflexlearn.rag.access.acl import acl_check
 from reflexlearn.rag.schemas import ChunkMeta
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ class KeywordIndex:
     """BM25 关键词索引单例。get() 首次 scroll qdrant 全量 chunk 构建；构建失败返回 None。"""
 
     _instance: "KeywordIndex | None" = None
-    _lock = threading.Lock()
+    _lock_guard = threading.Lock()
+    _build_lock: asyncio.Lock | None = None
 
     def __init__(self, chunk_ids: list[str], contents: list[str], metas: list[dict]):
         from rank_bm25 import BM25Okapi  # 局部 import：未装时由 get() 捕获 -> keyword 路跳过
@@ -46,7 +48,8 @@ class KeywordIndex:
     async def get(cls) -> "KeywordIndex | None":
         if cls._instance is not None:
             return cls._instance
-        with cls._lock:
+        lock = cls._get_build_lock()
+        async with lock:
             if cls._instance is not None:
                 return cls._instance
             try:
@@ -57,23 +60,36 @@ class KeywordIndex:
             return cls._instance
 
     @classmethod
+    def _get_build_lock(cls) -> asyncio.Lock:
+        with cls._lock_guard:
+            if cls._build_lock is None:
+                cls._build_lock = asyncio.Lock()
+            return cls._build_lock
+
+    @classmethod
     async def _build_from_qdrant(cls) -> "KeywordIndex":
         from reflexlearn.common.config import get_settings
         from reflexlearn.common.db import get_qdrant
 
         settings = get_settings()
         qdrant = get_qdrant()
+        timeout_s = float(getattr(settings, "rag_route_timeout_s", 3.0))
+        if not await _collection_ready(qdrant, settings.knowledge_collection, timeout_s):
+            raise RuntimeError(f"qdrant collection unavailable: {settings.knowledge_collection}")
         chunk_ids: list[str] = []
         contents: list[str] = []
         metas: list[dict] = []
         offset = None
         while True:
-            points, offset = await qdrant.scroll(
-                collection_name=settings.knowledge_collection,
-                limit=256,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
+            points, offset = await asyncio.wait_for(
+                qdrant.scroll(
+                    collection_name=settings.knowledge_collection,
+                    limit=256,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                ),
+                timeout=timeout_s,
             )
             for p in points:
                 payload = getattr(p, "payload", None) or {}
@@ -116,3 +132,17 @@ class KeywordIndex:
     @classmethod
     def invalidate(cls) -> None:
         cls._instance = None
+
+
+async def _collection_ready(qdrant, collection: str, timeout_s: float) -> bool:
+    checker = getattr(qdrant, "collection_exists", None)
+    if checker is None:
+        return True
+    try:
+        exists = await asyncio.wait_for(checker(collection), timeout=timeout_s)
+    except TypeError:
+        exists = await asyncio.wait_for(checker(collection_name=collection), timeout=timeout_s)
+    except Exception as e:
+        logger.warning("keyword qdrant collection check failed: %s", e)
+        return False
+    return bool(exists)

@@ -6,6 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
+from reflexlearn.common.config import get_settings
 from reflexlearn.orchestration.state import AgentState, ResourceTask
 from reflexlearn.orchestration.schemas import ResourceSpec
 from reflexlearn.memory.recursive_summary import get_context
@@ -51,20 +52,34 @@ def _infer_collab_mode(goal: str, llm_mode: Optional[str], tasks: list) -> str:
     return "central"
 
 
+def _forced_collab_mode(raw: str) -> str | None:
+    mode = (raw or "").strip().lower()
+    return mode if mode in {"central", "pipeline", "debate"} else None
+
+
 async def planner_node(state: AgentState) -> dict:
     goal = state.get("learning_goal", "")
     profile = state.get("learner_profile", {})
     llm = state.get("_llm")
+    type_hints = _resource_type_hints(state.get("resource_type_hints", []))
+    settings = get_settings()
 
-    plan, llm_mode = await _plan_with_llm(
-        goal, profile, state.get("reflections", []), llm, state.get("summary_layers", [])
-    )
+    plan: list[PlanItem] = []
+    llm_mode: Optional[str] = None
+    if settings.enable_llm_planner:
+        plan, llm_mode = await _plan_with_llm(
+            goal, profile, state.get("reflections", []), llm, state.get("summary_layers", [])
+        )
     if not plan:
-        plan = _fallback_plan(goal, profile)
+        plan = _fallback_plan(goal, profile, type_hints=type_hints)
         llm_mode = None
+    if type_hints:
+        plan = _apply_resource_type_hints(plan, type_hints, goal, profile)
 
     tasks = [_to_resource_task(item) for item in plan]
-    collab_mode = _infer_collab_mode(goal, llm_mode, plan)
+    collab_mode = _forced_collab_mode(settings.eval_force_collab_mode)
+    if collab_mode is None:
+        collab_mode = _infer_collab_mode(goal, llm_mode, plan)
     result = {"plan": tasks, "collab_mode": collab_mode, "iteration": state.get("iteration", 0) + 1}
     # 仅辩论模式注入 conflict 点火 gate→debate→judge 链路；其它模式不写该 key，
     # 保持 central / pipeline 流的 state 与改造前逐字节一致。
@@ -167,11 +182,20 @@ def _fallback_item(goal: str, profile: dict) -> PlanItem:
     )
 
 
-def _fallback_plan(goal: str, profile: dict) -> list[PlanItem]:
+def _fallback_plan(
+    goal: str,
+    profile: dict,
+    *,
+    type_hints: list[str] | None = None,
+) -> list[PlanItem]:
     """无 LLM / LLM 失败时的规则规划：围绕目标产出一套多模态基础资源
     （文档 + 导图 + 练习 + 代码 + 拓展阅读 + 视频脚本，覆盖全部 6 种资源类型）。
     既保证离线可用与鲁棒降级，也让流水线协作与多模态卡片在无凭证环境下
     仍可端到端体验，并满足「≥5 种资源」的 P0 硬指标（含多模态视频 / 动画）。"""
+    hints = _resource_type_hints(type_hints)
+    if hints:
+        return [_hinted_item(None, type_hint, goal, profile) for type_hint in hints]
+
     concept = goal or "学习目标"
     difficulty = _profile_difficulty(profile)
     style = profile.get("cognitive_style", "active")
@@ -194,6 +218,45 @@ def _fallback_plan(goal: str, profile: dict) -> list[PlanItem]:
         for t, c in extras
     ]
     return plan
+
+
+def _resource_type_hints(raw: list[str] | None) -> list[str]:
+    hints: list[str] = []
+    for item in raw or []:
+        if item in SUPPORTED_TYPES and item not in hints:
+            hints.append(item)
+    return hints
+
+
+def _apply_resource_type_hints(
+    plan: list[PlanItem],
+    hints: list[str],
+    goal: str,
+    profile: dict,
+) -> list[PlanItem]:
+    by_type: dict[str, PlanItem] = {}
+    for item in plan:
+        by_type.setdefault(item.type, item)
+    return [_hinted_item(by_type.get(type_hint), type_hint, goal, profile) for type_hint in hints]
+
+
+def _hinted_item(item: PlanItem | None, type_hint: str, goal: str, profile: dict) -> PlanItem:
+    if item is not None:
+        return PlanItem(
+            type=type_hint,
+            concept_ids=item.concept_ids,
+            difficulty=item.difficulty,
+            style_hint=item.style_hint,
+            constraints=item.constraints,
+        )
+    base = _fallback_item(goal, profile)
+    return PlanItem(
+        type=type_hint,
+        concept_ids=base.concept_ids,
+        difficulty=base.difficulty,
+        style_hint=base.style_hint,
+        constraints=base.constraints,
+    )
 
 
 def _normalize_item(item: PlanItem, goal: str, profile: dict) -> PlanItem:

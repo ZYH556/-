@@ -78,9 +78,10 @@ async def path_plan_node(state: AgentState) -> dict:
     passed = [c for c in completed if c.get("status") == "passed"]
     goal = state.get("learning_goal", "")
     plan_by_id = {t["task_id"]: t for t in state.get("plan", []) if t.get("task_id")}
+    settings = get_settings()
 
     skill = state.get("_skills", {}).get("path_plan")
-    if not passed or skill is None:
+    if settings.eval_skip_path_plan or not passed or skill is None:
         return {"learning_path": _simple_fallback(passed), "path_summary": "", "path_strategy": ""}
 
     resources = [_flatten(c, plan_by_id, goal) for c in passed]
@@ -92,7 +93,7 @@ async def path_plan_node(state: AgentState) -> dict:
     # enable_graph_retrieval 开启时注入 Neo4j 真实概念依赖图（PREREQUISITE_OF→拓扑排序）；
     # 否则 graph=None，skill 走启发式排序（零回归）。加载失败同样退 None，降级安全。
     graph = None
-    if get_settings().enable_graph_retrieval:
+    if settings.enable_graph_retrieval:
         graph = await _load_concept_graph(state.get("acl", {}))
     res = await skill.run(
         {

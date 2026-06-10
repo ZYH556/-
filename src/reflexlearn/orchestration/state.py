@@ -27,11 +27,14 @@ class AgentState(TypedDict):
     learner_profile: dict
     learning_goal: str
     collab_mode: Optional[str]
+    resource_type_hints: list[str]
 
     plan: list[ResourceTask]
     completed: Annotated[list[dict], add]
 
     reflections: list[dict]
+    self_refine_count: int
+    meta_reviews: list[dict]
 
     iteration: int
     replan_count: int

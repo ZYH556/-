@@ -4,6 +4,7 @@ import json
 
 from pydantic import ValidationError
 
+from reflexlearn.common.config import get_settings
 from reflexlearn.orchestration.state import AgentState
 from reflexlearn.orchestration.schemas import LearnerProfile
 from reflexlearn.memory.trim import trim_context, TrimConfig
@@ -14,9 +15,11 @@ async def profile_node(state: AgentState) -> dict:
     goal = state.get("learning_goal", "")
     llm = state.get("_llm")
 
-    profile = await _extract_with_llm(llm, state)
+    profile = None
+    if get_settings().enable_llm_profile:
+        profile = await _extract_with_llm(llm, state)
     if profile is None:
-        profile = _fallback_profile(goal)
+        profile = _fallback_profile(goal, state.get("learner_profile", {}))
 
     return {"learner_profile": profile.model_dump(), "iteration": state.get("iteration", 0) + 1}
 
@@ -68,12 +71,30 @@ async def _extract_with_llm(llm, state: AgentState) -> LearnerProfile | None:
         return None
 
 
-def _fallback_profile(goal: str) -> LearnerProfile:
-    return LearnerProfile(
+def _fallback_profile(goal: str, existing: dict | None = None) -> LearnerProfile:
+    fallback = LearnerProfile(
         knowledge_base={"python": 0.7, "statistics": 0.4, "machine_learning": 0.3},
         cognitive_style="active",
         goal=goal,
         weak_points=["数学推导", "概率论基础"],
         preferences={"language": "zh", "prefer_code_examples": True},
         progress=0.0,
+    )
+    if not existing:
+        return fallback
+    try:
+        old = LearnerProfile.model_validate(existing)
+    except ValidationError:
+        return fallback
+
+    knowledge_base = {**fallback.knowledge_base, **old.knowledge_base}
+    weak_points = list(dict.fromkeys([*old.weak_points, *fallback.weak_points]))
+    preferences = {**fallback.preferences, **old.preferences}
+    return LearnerProfile(
+        knowledge_base=knowledge_base,
+        cognitive_style=old.cognitive_style or fallback.cognitive_style,
+        goal=goal or old.goal,
+        weak_points=weak_points,
+        preferences=preferences,
+        progress=max(old.progress, fallback.progress),
     )

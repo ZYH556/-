@@ -20,6 +20,8 @@ class DocGenSkill:
         context = inp.get("context", "")
         concept = ", ".join(spec.get("concept_ids", ["未指定概念"]))
         difficulty = spec.get("difficulty", 0.5)
+        issues = spec.get("previous_issues", [])
+        fix_notes = "；".join(str(i) for i in issues if i)
 
         messages = [
             {
@@ -37,6 +39,7 @@ class DocGenSkill:
                     f"知识点：{concept}\n"
                     f"难度等级：{difficulty}\n"
                     f"参考上下文：{context[:1000] if context else '无'}\n"
+                    f"需修复点：{fix_notes or '无'}\n"
                     f"要求：控制在 500 字以内，结构清晰。"
                 ),
             },

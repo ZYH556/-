@@ -6,16 +6,19 @@ from langgraph.types import Send
 from reflexlearn.orchestration.state import AgentState
 from reflexlearn.common.config import get_settings
 from reflexlearn.orchestration.harness import harness_guard
-from reflexlearn.orchestration.nodes.profile import profile_node
-from reflexlearn.orchestration.nodes.planner import planner_node
-from reflexlearn.orchestration.nodes.generator import generate_resource
-from reflexlearn.orchestration.nodes.gate import gate_node, gate_route
-from reflexlearn.orchestration.nodes.assemble import assemble_node
-from reflexlearn.orchestration.nodes.critic import critic_node
-from reflexlearn.orchestration.nodes.debate import debate_node, judge_node
-from reflexlearn.orchestration.nodes.pipeline import pipeline_node
-from reflexlearn.orchestration.nodes.path_plan import path_plan_node
+from reflexlearn.orchestration.nodes.core.profile import profile_node
+from reflexlearn.orchestration.nodes.core.planner import planner_node
+from reflexlearn.orchestration.nodes.core.generator import generate_resource
+from reflexlearn.orchestration.nodes.core.gate import gate_node, gate_route
+from reflexlearn.orchestration.nodes.core.assemble import assemble_node
+from reflexlearn.orchestration.nodes.reflection.critic import critic_node
+from reflexlearn.orchestration.nodes.collaboration.debate import debate_node, judge_node
+from reflexlearn.orchestration.nodes.reflection.metacognition import metacognition_node, metacognition_route
+from reflexlearn.orchestration.nodes.collaboration.pipeline import pipeline_node
+from reflexlearn.orchestration.nodes.planning.path_plan import path_plan_node
 from reflexlearn.memory.manager import MemoryManager, recall_memory_node
+from reflexlearn.memory.graph_autogrow import autogrow_session_graph
+from reflexlearn.orchestration.schemas import Reflection
 
 from reflexlearn.skills.retrieve import RetrieveSkill
 from reflexlearn.skills.code_gen import CodeGenSkill
@@ -32,6 +35,7 @@ from reflexlearn.llm_gateway.gateway import LLMGateway
 def build_graph(llm: LLMGateway | None = None):
     if llm is None:
         llm = LLMGateway()
+    settings = get_settings()
 
     retrieve_skill = RetrieveSkill()
     doc_gen_skill = DocGenSkill(llm)
@@ -40,7 +44,7 @@ def build_graph(llm: LLMGateway | None = None):
     code_gen_skill = CodeGenSkill(llm)
     reading_gen_skill = ReadingGenSkill(llm)
     video_gen_skill = VideoGenSkill(llm)
-    quality_skill = QualityCheckSkill(llm)
+    quality_skill = QualityCheckSkill(llm if settings.enable_llm_quality_check else None)
     path_plan_skill = PathPlanSkill(llm)
     memory_manager = MemoryManager()
 
@@ -59,6 +63,10 @@ def build_graph(llm: LLMGateway | None = None):
     async def recall_with_memory(state: AgentState) -> dict:
         state_with_memory = {**state, "_memory_manager": memory_manager}
         return await recall_memory_node(state_with_memory)
+
+    async def profile_with_llm(state: AgentState) -> dict:
+        state_with_llm = {**state, "_llm": llm}
+        return await profile_node(state_with_llm)
 
     async def planner_with_llm(state: AgentState) -> dict:
         state_with_llm = {**state, "_llm": llm}
@@ -80,6 +88,10 @@ def build_graph(llm: LLMGateway | None = None):
         state_with_llm = {**state, "_llm": llm}
         return await judge_node(state_with_llm)
 
+    async def metacognition_with_llm(state: AgentState) -> dict:
+        state_with_llm = {**state, "_llm": llm}
+        return await metacognition_node(state_with_llm)
+
     async def pipeline_with_skills(state: AgentState) -> dict:
         state_with_skills = {**state, "_skills": skills}
         return await pipeline_node(state_with_skills)
@@ -90,7 +102,7 @@ def build_graph(llm: LLMGateway | None = None):
 
     g = StateGraph(AgentState)
 
-    g.add_node("profile", harness_guard(profile_node))
+    g.add_node("profile", harness_guard(profile_with_llm))
     g.add_node("recall", harness_guard(recall_with_memory))
     g.add_node("planner", harness_guard(planner_with_llm))
     g.add_node("generate_resource", harness_guard(generator_with_skills))
@@ -98,6 +110,7 @@ def build_graph(llm: LLMGateway | None = None):
     g.add_node("critic", harness_guard(critic_with_llm))
     g.add_node("debate", harness_guard(debate_with_llm))
     g.add_node("judge", harness_guard(judge_with_llm))
+    g.add_node("metacognition", harness_guard(metacognition_with_llm))
     g.add_node("pipeline", harness_guard(pipeline_with_skills))
     g.add_node("assemble", harness_guard(assemble_node))
     g.add_node("path_plan", harness_guard(path_plan_with_skills))
@@ -111,11 +124,17 @@ def build_graph(llm: LLMGateway | None = None):
     g.add_conditional_edges(
         "gate",
         gate_route,
-        {"critic": "critic", "debate": "debate", "assemble": "assemble"},
+        {
+            "critic": "critic",
+            "debate": "debate",
+            "metacognition": "metacognition",
+            "assemble": "assemble",
+        },
     )
     g.add_edge("critic", "planner")
     g.add_edge("debate", "judge")
     g.add_edge("judge", "assemble")
+    g.add_conditional_edges("metacognition", metacognition_route, ["generate_resource", "assemble"])
     g.add_edge("assemble", "path_plan")
     g.add_edge("path_plan", END)
 
@@ -154,6 +173,7 @@ async def run_session(
     user_id: str = "anonymous",
     session_id: str = "",
     tenant_id: str = "default",
+    resource_type_hints: list[str] | None = None,
 ):
     settings = get_settings()
     multi_turn = getattr(settings, "enable_multi_turn", True)
@@ -162,6 +182,7 @@ async def run_session(
     # ① LOAD：从 Redis 读历史短期记忆（多轮）。关闭多轮 / 无 sid / Redis 挂 → 空（降级单轮）。
     prior_messages: list[dict] = []
     summary_layers: list[str] = []
+    prior_profile: dict = {}
     if multi_turn and session_id:
         from reflexlearn.memory import session_store
 
@@ -173,6 +194,7 @@ async def run_session(
         hist = await session_store.load(scoped_session_id)
         prior_messages = hist["messages"]
         summary_layers = hist["summary_layers"]
+        prior_profile = await session_store.load_profile(user_id, tenant_id=tenant_id)
 
     llm = LLMGateway()
     graph = build_graph(llm)
@@ -182,9 +204,10 @@ async def run_session(
         "acl": {"user_id": user_id, "tenant_id": tenant_id, "visibility": ["public"]},
         "messages": prior_messages + [{"role": "user", "content": message}],
         "summary_layers": summary_layers,
-        "learner_profile": {},
+        "learner_profile": prior_profile,
         "learning_goal": message,
         "collab_mode": "central",
+        "resource_type_hints": resource_type_hints or [],
         "plan": [],
         "completed": [],
         "reflections": [],
@@ -203,11 +226,14 @@ async def run_session(
 
     # 旁路收集 assemble 的资源包摘要，作为本轮 assistant 轮写入 Redis（不改 yield 行为）
     assistant_summary: str | None = None
+    final_profile: dict = prior_profile
     async for event in graph.astream(initial_state, stream_mode="updates"):
         for node_output in event.values():
             if isinstance(node_output, dict) and node_output.get("resource_bundle"):
                 total = node_output["resource_bundle"].get("total", 0)
                 assistant_summary = f"[已生成 {total} 个学习资源]"
+            if isinstance(node_output, dict) and node_output.get("learner_profile"):
+                final_profile = node_output["learner_profile"]
         yield event
 
     # ② PERSIST：写回 Redis（全程降级，不影响已 yield 的响应）。
@@ -236,5 +262,36 @@ async def run_session(
                 messages=full_messages,
                 summary_layers=new_layers,
             )
+            if final_profile:
+                await session_store.save_profile(
+                    user_id,
+                    tenant_id=tenant_id,
+                    profile=final_profile,
+                )
+            if getattr(settings, "enable_promote", False):
+                reflection = Reflection(
+                    task_type="session",
+                    failure_type="none" if assistant_summary else "incomplete",
+                    cause=f"学习目标：{message}；结果：{assistant_summary or '[未形成资源包]'}",
+                    fix_strategy="复用本轮学习画像、资源规划和质量校验经验。",
+                    success=bool(assistant_summary),
+                )
+                await MemoryManager().promote_session(reflection=reflection, user_id=user_id)
+            if getattr(settings, "enable_graph_autogrow", False):
+                try:
+                    from reflexlearn.common.db import get_neo4j
+
+                    neo4j = get_neo4j()
+                except Exception:
+                    neo4j = None
+                await autogrow_session_graph(
+                    text=f"{message}\n{assistant_summary or '[本轮已完成]'}",
+                    tenant_id=tenant_id,
+                    visibility="public",
+                    doc_id=f"session:{tenant_id}:{user_id}:{session_id}",
+                    neo4j=neo4j,
+                    settings=settings,
+                    gateway=llm,
+                )
         except Exception:
             pass

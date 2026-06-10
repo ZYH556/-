@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
@@ -97,4 +98,5 @@ async def _persist_reflection(reflection: Reflection, user_id: str) -> None:
         qdrant=qdrant,
         reflection=reflection,
         user_id=user_id,
+        created_at=datetime.now(timezone.utc).isoformat(),
     )

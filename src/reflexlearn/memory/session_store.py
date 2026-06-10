@@ -22,6 +22,7 @@ from reflexlearn.common.db import get_redis
 logger = logging.getLogger(__name__)
 
 SESSION_PREFIX = "session:"
+PROFILE_PREFIX = "profile:"
 # 防 messages 无限膨胀，只留最近 N 条原文（更早的已压进 summary_layers）
 MAX_PERSISTED_MESSAGES = 40
 
@@ -37,6 +38,12 @@ def scoped_session_id(session_id: str, *, user_id: str, tenant_id: str) -> str:
     raw = "\0".join([tenant_id or "default", user_id or "anonymous", session_id])
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"v2:{digest}"
+
+
+def profile_key(user_id: str, *, tenant_id: str) -> str:
+    tenant = tenant_id or "default"
+    user = user_id or "anonymous"
+    return f"{PROFILE_PREFIX}{tenant}:{user}"
 
 
 async def load(session_id: str) -> dict:
@@ -82,4 +89,40 @@ async def persist(
         return True
     except Exception as e:
         logger.info("session_store.persist degraded (%s): %s", session_id, e)
+        return False
+
+
+async def load_profile(user_id: str, *, tenant_id: str = "default") -> dict:
+    """读取跨会话学习画像。Redis 不可用 / key 不存在 / JSON 损坏 → 返回空画像。"""
+    if not user_id:
+        return {}
+    key = profile_key(user_id, tenant_id=tenant_id)
+    try:
+        redis = await get_redis()
+        raw = await redis.get(key)
+        if not raw:
+            return {}
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.info("session_store.load_profile degraded (%s): %s", key, e)
+        return {}
+
+
+async def save_profile(user_id: str, *, tenant_id: str = "default", profile: dict) -> bool:
+    """保存跨会话学习画像。失败静默返回 False，不影响主会话。"""
+    if not user_id or not isinstance(profile, dict) or not profile:
+        return False
+    key = profile_key(user_id, tenant_id=tenant_id)
+    try:
+        ttl = get_settings().profile_ttl
+    except Exception:
+        ttl = 30 * 86400
+    try:
+        redis = await get_redis()
+        payload = json.dumps(profile, ensure_ascii=False)
+        await redis.set(key, payload, ex=ttl)
+        return True
+    except Exception as e:
+        logger.info("session_store.save_profile degraded (%s): %s", key, e)
         return False

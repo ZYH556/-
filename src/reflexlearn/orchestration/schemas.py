@@ -38,6 +38,13 @@ class Reflection(BaseModel):
     success: bool = False
 
 
+class MetaReview(BaseModel):
+    score: float = Field(default=1.0, ge=0, le=1)
+    issues: list[str] = Field(default_factory=list)
+    refine_hint: str = ""
+    suggested_skill: str = ""
+
+
 class DebateRound(BaseModel):
     round: int
     positions: list[dict] = Field(default_factory=list)

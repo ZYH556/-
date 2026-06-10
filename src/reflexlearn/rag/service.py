@@ -17,9 +17,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from reflexlearn.rag.fusion import fuse_and_dedup, weighted_sort
-from reflexlearn.rag.router import route_strategy
+from reflexlearn.rag.ranking.fusion import fuse_and_dedup, weighted_sort
+from reflexlearn.rag.routing.router import route_strategy
 from reflexlearn.rag.schemas import ChunkMeta, RetrievalResult
+from reflexlearn.observability.metrics import observe_degradation, observe_rag
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 class RAGService:
     def __init__(self, *, neo4j=None, reranker=None, settings=None):
         self._neo4j = neo4j
-        self._reranker = reranker  # 有 .rerank()/.is_available() 的模块或对象；None 用 rag.rerank
+        self._reranker = reranker  # 有 .rerank()/.is_available() 的模块或对象；None 用 ranking.rerank
         self._settings = settings
 
     def _settings_obj(self):
@@ -50,11 +51,12 @@ class RAGService:
         kw_index = None
         if strategy.use_keyword or use_graph:
             try:
-                from reflexlearn.rag.keyword import KeywordIndex
+                from reflexlearn.rag.retrieval.keyword import KeywordIndex
 
                 kw_index = await KeywordIndex.get()
             except Exception as e:
                 logger.warning("keyword index unavailable: %s", e)
+                observe_degradation("rag", "keyword_unavailable")
 
         # 1) 并行召回（只并行召回，不含 rerank）
         tasks = []
@@ -76,6 +78,7 @@ class RAGService:
             for name, res in zip(order, results):
                 if isinstance(res, Exception):
                     logger.warning("route %s failed: %s", name, res)
+                    observe_degradation("rag", f"{name}_route_failed")
                     continue
                 if res:
                     routes[name] = res
@@ -84,6 +87,7 @@ class RAGService:
         # 2) RRF 融合去重
         fused = fuse_and_dedup(routes) if routes else []
         if not fused:
+            observe_rag(routes_used=routes_used, result_count=0, status="empty")
             return RetrievalResult(chunks=[], strategy_used=str(strategy), routes_used=routes_used)
 
         # 3) rerank 精排（串行，gather 之后）| weighted_sort 降级
@@ -91,18 +95,25 @@ class RAGService:
 
         # 4) token 预算裁剪
         final = self._trim_to_budget(ranked, strategy.top_k)
+        observe_rag(routes_used=routes_used, result_count=len(final), status="ok")
         return RetrievalResult(chunks=final, strategy_used=str(strategy), routes_used=routes_used)
 
     async def _semantic(self, query, acl, top_k, settings) -> list[ChunkMeta]:
-        from reflexlearn.rag.semantic import semantic_search
+        from reflexlearn.rag.retrieval.semantic import semantic_search
 
-        return await semantic_search(query, acl, top_k, getattr(settings, "knowledge_collection", "knowledge_chunks"))
+        return await semantic_search(
+            query,
+            acl,
+            top_k,
+            getattr(settings, "knowledge_collection", "knowledge_chunks"),
+            route_timeout_s=getattr(settings, "rag_route_timeout_s", 3.0),
+        )
 
     async def _keyword(self, kw_index, query, acl, top_k) -> list[ChunkMeta]:
         return kw_index.search(query, top_k=top_k, acl=acl)
 
     async def _graph(self, query, acl, kw_index) -> list[ChunkMeta]:
-        from reflexlearn.rag.graph_retrieval import graph_expand
+        from reflexlearn.rag.retrieval.graph_retrieval import graph_expand
 
         neo4j = self._neo4j
         if neo4j is None:
@@ -116,11 +127,12 @@ class RAGService:
             return weighted_sort(chunks)
         reranker = self._reranker
         if reranker is None:
-            from reflexlearn.rag import rerank as reranker
+            from reflexlearn.rag.ranking import rerank as reranker
         try:
             return reranker.rerank(query, chunks)
         except Exception as e:  # RerankerUnavailable / 推理异常 → 降级
             logger.info("rerank degraded -> weighted_sort: %s", e)
+            observe_degradation("rag", "rerank_degraded")
             return weighted_sort(chunks)
 
     def _trim_to_budget(self, chunks: list[ChunkMeta], top_k: int, char_budget: int = 4000) -> list[ChunkMeta]:

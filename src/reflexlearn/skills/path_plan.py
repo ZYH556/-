@@ -19,6 +19,7 @@ from reflexlearn.llm_gateway.gateway import LLMGateway
 from reflexlearn.orchestration.schemas import LearningPathPlan
 from reflexlearn.skills.base import SkillContext, SkillResult
 from reflexlearn.skills.offline import OFFLINE_TAG
+from reflexlearn.skills.path_topology import topo_order
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +219,7 @@ class PathPlanSkill:
         # graph 非 None：按 Neo4j 真实 PREREQUISITE_OF 拓扑排序；否则启发式（现状，零回归）
         prereq_tids: dict[str, list[str]] = {}
         if graph:
-            ordered, prereq_tids = self._topo_order(resources, graph, sort_key)
+            ordered, prereq_tids = topo_order(resources, graph, sort_key)
         else:
             ordered = sorted(resources, key=sort_key)
 
@@ -256,85 +257,3 @@ class PathPlanSkill:
         else:
             strategy = "规则排序：薄弱点优先 → 教学序（讲解→框架→实践→检验→拓展→视频）→ 难度升序"
         return {"steps": steps, "summary": summary, "strategy": strategy}
-
-    def _topo_order(self, resources: list[dict], graph: dict, sort_key):
-        """按概念依赖图 graph(concept->[prereqs]) 对 resources 做 Kahn 拓扑排序。
-
-        - concept 模糊包含匹配（仿 is_weak）降低中文对齐脆性；一个概念可对应多 resource(doc/quiz)。
-        - 概念全集取 graph 的 keys ∪ values（前置概念可能只作为依赖出现，不作 key）。
-        - 就绪集 tie-break 用 sort_key（薄弱点→教学序→难度）保证确定性。
-        - 不在图中的 resource 附末尾；图有环 → 整体退化为启发式排序（降级安全，不崩）。
-        返回 (ordered_resources, prereq_tids:{task_id:[跨概念前置 task_id...]})。
-        """
-        from collections import defaultdict
-
-        all_concepts = set(graph.keys())
-        for prereqs in graph.values():
-            all_concepts.update(prereqs)
-        graph_concepts = list(all_concepts)
-
-        def match_concept(rc: str):
-            rc_l = (rc or "").lower()
-            if not rc_l:
-                return None
-            for g in graph_concepts:
-                gl = g.lower()
-                if gl and (gl in rc_l or rc_l in gl):
-                    return g
-            return None
-
-        by_concept: dict[str, list[dict]] = defaultdict(list)
-        off_graph: list[dict] = []
-        for r in resources:
-            c = match_concept(r.get("concept", ""))
-            by_concept[c].append(r) if c else off_graph.append(r)
-
-        if not by_concept:
-            return sorted(resources, key=sort_key), {}  # 无 resource 命中图 → 启发式
-
-        present = set(by_concept)
-        indeg = {c: 0 for c in present}
-        adj: dict[str, list[str]] = defaultdict(list)
-        for c in present:
-            for pre in graph.get(c, []):
-                if pre in present:
-                    adj[pre].append(c)
-                    indeg[c] += 1
-
-        def concept_key(c: str):
-            return min(sort_key(r) for r in by_concept[c])
-
-        # Kahn：每轮从入度 0 的就绪集里按 concept_key 取最小（确定性 tie-break）
-        ready = sorted([c for c in present if indeg[c] == 0], key=concept_key)
-        order_concepts: list[str] = []
-        while ready:
-            c = ready.pop(0)
-            order_concepts.append(c)
-            for nxt in adj[c]:
-                indeg[nxt] -= 1
-                if indeg[nxt] == 0:
-                    ready.append(nxt)
-            ready = sorted(ready, key=concept_key)
-
-        if len(order_concepts) < len(present):
-            return sorted(resources, key=sort_key), {}  # 有环 → 退化启发式
-
-        # 概念拓扑序展开，concept 内按 sort_key；off_graph 资源附末尾
-        ordered: list[dict] = []
-        for c in order_concepts:
-            ordered.extend(sorted(by_concept[c], key=sort_key))
-        ordered.extend(sorted(off_graph, key=sort_key))
-
-        # 跨概念前置依赖：concept 的每个前置概念组里(教学序)最后一个 resource 作锚点
-        prereq_tids: dict[str, list[str]] = {}
-        for c in present:
-            dep_tids: list[str] = []
-            for pre in graph.get(c, []):
-                if pre in present:
-                    anchor = max(by_concept[pre], key=sort_key)
-                    if anchor.get("task_id"):
-                        dep_tids.append(anchor["task_id"])
-            for r in by_concept[c]:
-                if r.get("task_id"):
-                    prereq_tids[r["task_id"]] = list(dep_tids)
-        return ordered, prereq_tids

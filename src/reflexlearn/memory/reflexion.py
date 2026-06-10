@@ -9,10 +9,12 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import uuid4
 
 from reflexlearn.common.config import get_settings
+from reflexlearn.observability.metrics import observe_memory_recall
 from reflexlearn.orchestration.schemas import Reflection
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ async def write_reflection(
     qdrant,
     reflection: Reflection,
     user_id: str,
+    created_at: str = "",
 ) -> bool:
     wrote_any = False
 
@@ -33,7 +36,7 @@ async def write_reflection(
         wrote_any = await _write_pg(pg_pool, reflection) or wrote_any
 
     if qdrant is not None:
-        wrote_any = await _write_qdrant(qdrant, reflection, user_id) or wrote_any
+        wrote_any = await _write_qdrant(qdrant, reflection, user_id, created_at) or wrote_any
 
     return wrote_any
 
@@ -47,16 +50,20 @@ async def recall_reflections(
     limit: int = 3,
 ) -> list[dict]:
     if qdrant is None:
+        observe_memory_recall(mode="none", status="unavailable", result_count=0)
         return []
 
     user_id = (acl or {}).get("user_id")
 
     # 优先语义召回：embed 当前学习目标 → 按相似度取最相关的历史失败经验
+    mode = "semantic"
     points = await _semantic_recall(qdrant, query, acl, task_type, limit)
     if points is None:
         # embedding 不可用 / 语义查询失败 → 降级 scroll（保留原「近 N 条」行为）
+        mode = "scroll"
         points = await _scroll_recall(qdrant, limit)
     if points is None:
+        observe_memory_recall(mode=mode, status="unavailable", result_count=0)
         return []
 
     recalled: list[dict] = []
@@ -64,6 +71,8 @@ async def recall_reflections(
         payload = getattr(point, "payload", None) or {}
         if not _passes_acl(payload, user_id, task_type):  # 防御性 ACL 兜底
             continue
+        if _memory_consolidation_enabled():
+            await _bump_hit_count(qdrant, getattr(point, "id", None), payload)
         recalled.append(
             {
                 "task_type": payload.get("task_type", task_type),
@@ -74,6 +83,8 @@ async def recall_reflections(
                 "query": query,
             }
         )
+    status = "ok" if recalled else "empty"
+    observe_memory_recall(mode=mode, status=status, result_count=len(recalled))
     return recalled
 
 
@@ -82,11 +93,15 @@ async def _semantic_recall(qdrant, query: str, acl: dict, task_type: str, limit:
     if not (query or "").strip():
         return None
 
+    timeout_s = _rag_timeout_s()
     try:  # RAG 关闭即跳过 embedding，降级 scroll（与 RetrieveSkill 门控一致，亦免无谓加载模型）
-        if not get_settings().enable_rag:
+        settings = get_settings()
+        if not settings.enable_rag:
             return None
     except Exception:
         pass
+    if not await _collection_ready(qdrant, EXPERIENCE_COLLECTION, timeout_s):
+        return []
 
     try:
         from reflexlearn.common.embedding import embed_query
@@ -97,12 +112,15 @@ async def _semantic_recall(qdrant, query: str, acl: dict, task_type: str, limit:
         return None
 
     try:
-        response = await qdrant.query_points(
-            collection_name=EXPERIENCE_COLLECTION,
-            query=vector,
-            limit=limit,
-            query_filter=_build_acl_filter(acl, task_type),
-            with_payload=True,
+        response = await asyncio.wait_for(
+            qdrant.query_points(
+                collection_name=EXPERIENCE_COLLECTION,
+                query=vector,
+                limit=limit,
+                query_filter=_build_acl_filter(acl, task_type),
+                with_payload=True,
+            ),
+            timeout=timeout_s,
         )
         return response.points
     except Exception as e:
@@ -113,14 +131,39 @@ async def _semantic_recall(qdrant, query: str, acl: dict, task_type: str, limit:
 async def _scroll_recall(qdrant, limit: int):
     """降级召回：scroll 取近 N 条（embedding 不可用时的兜底，保留历史行为）。"""
     try:
-        points, _ = await qdrant.scroll(
-            collection_name=EXPERIENCE_COLLECTION,
-            limit=limit,
-            with_payload=True,
+        points, _ = await asyncio.wait_for(
+            qdrant.scroll(
+                collection_name=EXPERIENCE_COLLECTION,
+                limit=limit,
+                with_payload=True,
+            ),
+            timeout=_rag_timeout_s(),
         )
         return points
     except Exception:
         return None
+
+
+async def _bump_hit_count(qdrant, point_id, payload: dict) -> None:
+    """召回即巩固：best-effort 增加 hit_count，任何异常都不影响主召回。"""
+    if point_id is None or not hasattr(qdrant, "set_payload"):
+        return
+    try:
+        next_count = int(payload.get("hit_count", 0)) + 1
+        await qdrant.set_payload(
+            collection_name=EXPERIENCE_COLLECTION,
+            payload={"hit_count": next_count},
+            points=[point_id],
+        )
+    except Exception:
+        return
+
+
+def _memory_consolidation_enabled() -> bool:
+    try:
+        return bool(getattr(get_settings(), "enable_memory_consolidation", True))
+    except Exception:
+        return True
 
 
 def _passes_acl(payload: dict, user_id: str | None, task_type: str) -> bool:
@@ -178,12 +221,14 @@ async def _write_pg(pg_pool, reflection: Reflection) -> bool:
         return False
 
 
-async def _write_qdrant(qdrant, reflection: Reflection, user_id: str) -> bool:
+async def _write_qdrant(qdrant, reflection: Reflection, user_id: str, created_at: str) -> bool:
     try:  # RAG 关闭即不写向量库（PG 已持久化），与 recall 门控一致、避免无谓加载模型
         if not get_settings().enable_rag:
             return False
     except Exception:
         pass
+    if not await _collection_ready(qdrant, EXPERIENCE_COLLECTION, _rag_timeout_s()):
+        return False
 
     # 1) 真实向量化（embedding 不可用即跳过：绝不写零向量污染语义空间，PG 已持久化）
     try:
@@ -214,6 +259,8 @@ async def _write_qdrant(qdrant, reflection: Reflection, user_id: str) -> bool:
                         "cause": reflection.cause,
                         "fix_strategy": reflection.fix_strategy,
                         "success": reflection.success,
+                        "created_at": created_at,
+                        "hit_count": 0,
                     },
                 )
             ],
@@ -222,3 +269,24 @@ async def _write_qdrant(qdrant, reflection: Reflection, user_id: str) -> bool:
     except Exception as e:
         logger.warning("reflexion qdrant write failed: %s", e)
         return False
+
+
+def _rag_timeout_s() -> float:
+    try:
+        return float(getattr(get_settings(), "rag_route_timeout_s", 3.0))
+    except Exception:
+        return 3.0
+
+
+async def _collection_ready(qdrant, collection: str, timeout_s: float) -> bool:
+    checker = getattr(qdrant, "collection_exists", None)
+    if checker is None:
+        return True
+    try:
+        exists = await asyncio.wait_for(checker(collection), timeout=timeout_s)
+    except TypeError:
+        exists = await asyncio.wait_for(checker(collection_name=collection), timeout=timeout_s)
+    except Exception as e:
+        logger.info("reflexion qdrant collection check failed: %s", e)
+        return False
+    return bool(exists)

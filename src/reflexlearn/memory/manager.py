@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from reflexlearn.common.db import get_qdrant
 from reflexlearn.common.config import get_settings
 from reflexlearn.memory.reflexion import recall_reflections, write_reflection
@@ -56,6 +58,7 @@ class MemoryManager:
                 qdrant=self._resolve_qdrant(),
                 reflection=reflection,
                 user_id=user_id,
+                created_at=datetime.now(timezone.utc).isoformat(),
             )
         except Exception:
             return False
