@@ -1103,6 +1103,6 @@ DB/模型不可用→try/except 降级。每个新功能必须配降级矩阵。
 
 ## 8. 测试与验证基线
 
-- **单测**：`tests/unit` 根目录 1 个 Python 测试文件，递归共 50+ 个 Python 测试文件，**465 passed, 2 warnings**（2026-06-10 W3-D 完成后更新；W2 基线 400 + W3-0 边界 4 + W3-A 15 + W3-B 19 + W3-C safety 15 + W3-D upload/signed_url 12），hermetic（conftest 拦 `_get_model`/`_get_reranker`/`get_qdrant`，**不拦 `get_redis`/`get_pg_pool`/`get_neo4j`** → 多轮/写链路测试须在封装层 mock 或**注入假对象**，绝不让被测函数内自取 pg/redis）。新功能必须配单测 + 降级测试。
+- **单测**：`tests/unit` 根目录 1 个 Python 测试文件，递归共 50+ 个 Python 测试文件，**477 passed, 2 warnings**（2026-06-10 W3-E 完成后更新；W2 基线 400 + W3-0 边界 4 + W3-A 15 + W3-B 19 + W3-C safety 15 + W3-D upload/signed_url 12 + W3-E training 12），hermetic（conftest 拦 `_get_model`/`_get_reranker`/`get_qdrant`，**不拦 `get_redis`/`get_pg_pool`/`get_neo4j`** → 多轮/写链路测试须在封装层 mock 或**注入假对象**，绝不让被测函数内自取 pg/redis）。新功能必须配单测 + 降级测试。
 - **活体验证套路**：无凭证跑 `run_session()` 验证降级路径；带 RAG 后端 curl SSE 验证端到端帧。临时脚本放 `scripts/_verify_*.py`，验完即删。
 - **零回归原则**：集成测试抓 assemble 帧、不断言图终止点；新增 state 字段用 `.get()` 读，不破坏手构 state 的测试。
