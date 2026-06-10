@@ -4,11 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-from reflexlearn.api.routes import auth, health, chat, knowledge, video
+from reflexlearn.api.routes import auth, health, chat, knowledge, mistakes, traces, video, workspace
 from reflexlearn.common.auth import validate_auth_runtime
 from reflexlearn.common.config import get_settings
 from reflexlearn.common.db import lifespan_db
 from reflexlearn.common.logging import configure_logging
+from reflexlearn.observability.metrics import instrument_app
+from reflexlearn.observability.routes import router as metrics_router
+from reflexlearn.security.csrf import CSRFMiddleware
 
 
 @asynccontextmanager
@@ -38,12 +41,18 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=_split_csv(settings.cors_allow_origins),
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     )
+    app.add_middleware(CSRFMiddleware)
+    instrument_app(app)
+    app.include_router(metrics_router, tags=["observability"])
     app.include_router(auth.router, prefix="/api", tags=["auth"])
     app.include_router(health.router, prefix="/api", tags=["health"])
     app.include_router(chat.router, prefix="/api", tags=["chat"])
     app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
+    app.include_router(workspace.router, prefix="/api", tags=["workspace"])
+    app.include_router(mistakes.router, prefix="/api", tags=["mistakes"])
+    app.include_router(traces.router, prefix="/api", tags=["collaboration"])
     app.include_router(video.router, prefix="/api", tags=["video"])
     return app

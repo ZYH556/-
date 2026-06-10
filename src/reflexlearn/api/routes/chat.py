@@ -8,8 +8,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from reflexlearn.api.deps import get_current_user
+from reflexlearn.api.service_deps import safe_pg_pool
+from reflexlearn.collaboration.traces import get_default_trace_store
 from reflexlearn.common.auth import CurrentUser
 from reflexlearn.orchestration.graph import run_session
+from reflexlearn.safety import SafetyGateway, safety_audit_event
+from reflexlearn.security.audit import AuditLog
 
 router = APIRouter()
 
@@ -24,14 +28,61 @@ class ChatRequest(BaseModel):
     session_id: str = ""
 
 
-async def event_stream(message: str, user_id: str, tenant_id: str, session_id: str):
+async def _record_trace(pg_pool, user_id: str, tenant_id: str, session_id: str, node: str, payload: dict) -> None:
+    try:
+        await get_default_trace_store().record(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            session_id=session_id,
+            node=node,
+            event_type="agent_step",
+            payload=payload,
+            pg_pool=pg_pool,
+        )
+    except Exception:
+        return
+
+
+async def event_stream(message: str, user_id: str, tenant_id: str, session_id: str, pg_pool=None):
     # 首帧回传原始 session_id：前端仅在当前浏览器会话内保存，服务端存储另做用户/租户隔离。
     yield sse_event("session", {"session_id": session_id})
+    await _record_trace(
+        pg_pool,
+        user_id,
+        tenant_id,
+        session_id,
+        "session_start",
+        {"message": message[:200]},
+    )
     yield sse_event("agent_step", {"step": "session_start", "message": message})
+
+    gateway = SafetyGateway()
+    input_decision = gateway.check_input(message)
+    if not input_decision.allowed:
+        await AuditLog(pg_pool=pg_pool).record(
+            safety_audit_event(
+                stage="input",
+                decision=input_decision,
+                user_id=user_id,
+                tenant_id=tenant_id,
+            )
+        )
+        yield sse_event("error", {"error": "input_blocked", "reasons": input_decision.reasons})
+        yield sse_event("done", {"status": "blocked"})
+        return
 
     try:
         async for event in run_session(message, user_id, session_id, tenant_id):
             for node_name, node_output in event.items():
+                if isinstance(node_output, dict):
+                    await _record_trace(
+                        pg_pool,
+                        user_id,
+                        tenant_id,
+                        session_id,
+                        node_name,
+                        _trace_payload(node_name, node_output),
+                    )
                 if node_name == "profile":
                     yield sse_event("agent_step", {"step": "profile", "detail": "画像构建完成"})
 
@@ -51,7 +102,7 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
                                 {
                                     "type": item.get("type", "doc"),
                                     "task_id": item.get("task_id", ""),
-                                    "content": item.get("content", "")[:200],
+                                    "content": gateway.check_output(item.get("content", "")).redacted_text[:200],
                                 },
                             )
 
@@ -88,7 +139,7 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
                                 {
                                     "type": item.get("type", "doc"),
                                     "task_id": item.get("task_id", ""),
-                                    "content": item.get("content", "")[:200],
+                                    "content": gateway.check_output(item.get("content", "")).redacted_text[:200],
                                 },
                             )
                     passed_n = sum(1 for c in completed if c.get("status") == "passed")
@@ -112,7 +163,7 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
                                 {
                                     "type": res.get("type", "doc"),
                                     "task_id": res.get("task_id", ""),
-                                    "content": res.get("content", ""),
+                                    "content": gateway.check_output(res.get("content", "")).redacted_text,
                                 },
                             )
 
@@ -137,12 +188,30 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
     yield sse_event("done", {"status": "completed"})
 
 
+def _trace_payload(node_name: str, node_output: dict) -> dict:
+    if node_name == "planner":
+        return {"plan_count": len(node_output.get("plan", []))}
+    if node_name in {"generate_resource", "pipeline"}:
+        completed = node_output.get("completed", [])
+        return {
+            "completed": len(completed),
+            "passed": sum(1 for item in completed if item.get("status") == "passed"),
+        }
+    if node_name == "assemble":
+        bundle = node_output.get("resource_bundle", {}) or {}
+        return {"total": bundle.get("total", 0)}
+    if node_name == "path_plan":
+        return {"steps": len(node_output.get("learning_path", []) or [])}
+    return {"keys": sorted(str(key) for key in node_output.keys() if not str(key).startswith("_"))[:12]}
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest, user: CurrentUser = Depends(get_current_user)):
     # session_id 缺省由后端生成（uuid hex）；前端首轮不带、后续带回延续会话
     session_id = req.session_id or uuid.uuid4().hex
+    pg_pool = await safe_pg_pool()
     return StreamingResponse(
-        event_stream(req.message, user.user_id, user.tenant_id, session_id),
+        event_stream(req.message, user.user_id, user.tenant_id, session_id, pg_pool=pg_pool),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

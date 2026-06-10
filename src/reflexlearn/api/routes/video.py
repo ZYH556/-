@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from reflexlearn.api.acl import assert_object_access
 from reflexlearn.api.deps import get_current_user
 from reflexlearn.common.auth import CurrentUser
 from reflexlearn.executor.video_jobs import get_video_job, submit_video_job
@@ -26,7 +27,12 @@ async def create_video_job(
     body: VideoJobRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
-    job = await submit_video_job(storyboard=body.storyboard, prompt=body.prompt)
+    job = await submit_video_job(
+        storyboard=body.storyboard,
+        prompt=body.prompt,
+        user_id=user.user_id,
+        tenant_id=user.tenant_id,
+    )
     return {"job_id": job.job_id, "status": job.status}
 
 
@@ -38,4 +44,10 @@ async def query_video_job(
     job = await get_video_job(job_id)
     if job is None:
         return JSONResponse(status_code=404, content={"error": "job_not_found"})
+    assert_object_access(
+        user=user,
+        owner_user_id=job.user_id,
+        tenant_id=job.tenant_id,
+        visibility="private",
+    )
     return job.model_dump()
