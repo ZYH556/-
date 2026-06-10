@@ -1,6 +1,6 @@
 import type { ResourceCard as Card } from "@/lib/types";
-import { MarkdownView } from "./cards/MarkdownView";
-import { MindmapCard } from "./cards/MindmapCard";
+import { MarkdownView } from "../cards/MarkdownView";
+import { MindmapCard } from "../cards/MindmapCard";
 
 const TYPE_META: Record<string, { label: string; color: string }> = {
   doc: { label: "讲解文档", color: "bg-blue-100 text-blue-700" },

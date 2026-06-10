@@ -1,4 +1,5 @@
 import type { SSEMessage } from "./types";
+import { readCsrfToken } from "./apiClient";
 
 /**
  * 解析后端的 POST + text/event-stream 响应。
@@ -11,14 +12,19 @@ export async function* parseSSEStream(
   signal: AbortSignal,
   token: string,
 ): AsyncGenerator<SSEMessage> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // 会话凭证以 HttpOnly cookie 为准（credentials: "include"）；
+  // token 空串时不附加 Bearer（仅开发/脚本兼容）。
+  if (token) headers.Authorization = `Bearer ${token}`;
+  // cookie 会话下写请求需带 CSRF（double-submit）。
+  const csrf = readCsrfToken();
+  if (csrf) headers["X-CSRF-Token"] = csrf;
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(body),
     signal,
+    credentials: "include",
   });
 
   if (!res.ok || !res.body) {

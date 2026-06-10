@@ -2,25 +2,32 @@
 
 import type { CurrentUser } from "@/lib/types";
 import { useChat } from "@/lib/useChat";
-import { ChatInput } from "@/components/ChatInput";
-import { AgentTimeline } from "@/components/AgentTimeline";
-import { ResourceCard } from "@/components/ResourceCard";
-import { DebatePanel } from "@/components/DebatePanel";
-import { LearningPathCard } from "@/components/LearningPathCard";
-import { KnowledgeUpload } from "@/components/KnowledgeUpload";
-import { VideoJobCard } from "@/components/VideoJobCard";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { AgentTimeline } from "@/components/resource/AgentTimeline";
+import { ResourceCard } from "@/components/resource/ResourceCard";
+import { DebatePanel } from "@/components/resource/DebatePanel";
+import { LearningPathCard } from "@/components/resource/LearningPathCard";
+import { KnowledgeUpload } from "@/components/tools/KnowledgeUpload";
+import { VideoJobCard } from "@/components/tools/VideoJobCard";
 
 interface WorkspaceProps {
   token: string;
   user: CurrentUser;
   onLogout: () => void;
+  embedded?: boolean;
 }
 
-export function Workspace({ token, user, onLogout }: WorkspaceProps) {
+export function Workspace({ token, user, onLogout, embedded = false }: WorkspaceProps) {
   const { turns, send, stop, resetSession, streaming } = useChat(token);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8">
+    <main
+      className={
+        embedded
+          ? "flex flex-col gap-6"
+          : "mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8"
+      }
+    >
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">ReflexLearn</h1>

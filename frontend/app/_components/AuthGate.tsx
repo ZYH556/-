@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { clearAuth, getStoredAuth, login } from "@/lib/auth";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { fetchSession, login, logout as apiLogout } from "@/lib/auth";
 import { clearStoredChatSession } from "@/lib/useChat";
 import type { AuthToken } from "@/lib/types";
 import { getErrorMessage } from "@/lib/apiClient";
@@ -9,17 +9,31 @@ import { Workspace } from "./Workspace";
 
 type LoginStatus = "checking" | "idle" | "submitting" | "error";
 
-export function AuthGate() {
+interface AuthGateProps {
+  children?: (session: {
+    auth: AuthToken;
+    onLogout: () => void;
+  }) => ReactNode;
+}
+
+export function AuthGate({ children }: AuthGateProps) {
   const [auth, setAuth] = useState<AuthToken | null>(null);
   const [status, setStatus] = useState<LoginStatus>("checking");
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("reflexlearn-admin");
   const [error, setError] = useState("");
 
+  // 刷新恢复：仅凭 HttpOnly cookie 调 /auth/me，不再读 sessionStorage token。
   useEffect(() => {
-    const stored = getStoredAuth();
-    setAuth(stored);
-    setStatus("idle");
+    let active = true;
+    fetchSession().then((session) => {
+      if (!active) return;
+      setAuth(session);
+      setStatus("idle");
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -36,14 +50,25 @@ export function AuthGate() {
     }
   }
 
-  function logout() {
-    clearAuth();
+  async function logout() {
+    await apiLogout();
     clearStoredChatSession();
     setAuth(null);
     setStatus("idle");
   }
 
+  if (status === "checking") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-400">
+        正在恢复会话…
+      </main>
+    );
+  }
+
   if (auth) {
+    if (children) {
+      return <>{children({ auth, onLogout: logout })}</>;
+    }
     return <Workspace token={auth.access_token} user={auth.user} onLogout={logout} />;
   }
 
