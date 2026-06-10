@@ -52,20 +52,32 @@ async def wait_api(client: httpx.AsyncClient) -> None:
 
 
 async def seed_trace(client: httpx.AsyncClient) -> None:
+    saw_useful_step = False
     try:
         async with client.stream(
             "POST",
             f"{API}/chat",
             json={"message": "为 LoRA 导出生成一条协作轨迹 token=local-secret"},
             headers=headers(),
-            timeout=20,
+            timeout=60,
         ) as resp:
             resp.raise_for_status()
             async for chunk in resp.aiter_text():
-                if '"step": "session_start"' in chunk or '"step":"session_start"' in chunk:
+                useful_markers = (
+                    '"step": "assemble"',
+                    '"step":"assemble"',
+                    '"step": "path_plan"',
+                    '"step":"path_plan"',
+                    "resource_card",
+                    "learning_path",
+                )
+                if any(marker in chunk for marker in useful_markers):
+                    saw_useful_step = True
                     break
     except httpx.ReadTimeout:
         pass
+    if not saw_useful_step:
+        raise RuntimeError("collaboration trace did not reach a useful non-session step")
     print("[OK] collaboration trace seeded")
 
 

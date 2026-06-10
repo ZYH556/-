@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-10 · 本轮成果：**M7 波次 3 · P0 安全合规闭环（W3-0/A/B/C/D）全部完成**——基线门禁、DB 用户+HttpOnly Cookie 会话、CSRF 双提交+登录限流+审计、AI Safety Gateway、上传隔离区+扫描+签名 URL 均落地。新增 `accounts/`、`security/`（csrf/rate_limit/audit/uploads/signed_url）、`safety/`。波次 3 派工书见 `docs/17`：**W3-0~D ✅（P0 安全）→ W3-E~I（LoRA/部署/验收，部分需 GPU/公网外部环境）**。验证基线 **465 passed, 2 warnings**（400→465，零回归），前端 13 路由构建通过，`check_api_security 8000` 7 项通过；真 uvicorn 活体：cookie 登录→CSRF→Safety 拦截恶意输入、上传恶意 html→422。下一步推进 **W3-E**（LoRA 数据质量门禁，可本地完成）。
+最后更新：2026-06-10 · 本轮成果：**M7 波次 3 · P0 安全合规闭环（W3-0/A/B/C/D）+ W3-E LoRA 数据质量门禁全部完成**——基线门禁、DB 用户+HttpOnly Cookie 会话、CSRF 双提交+登录限流+审计、AI Safety Gateway、上传隔离区+扫描+签名 URL、LoRA 训练前质量门禁与数据集版本化均落地。新增 `accounts/`、`security/`（csrf/rate_limit/audit/uploads/signed_url）、`safety/`、`training/`。波次 3 派工书见 `docs/17`：**W3-0~E ✅ → W3-F~I（AutoDL 训练包 / LoRA eval / 部署 / 验收，部分需 GPU/公网外部环境）**。验证基线：全量单测 **477 passed, 2 warnings**（W3-D 465→W3-E 477，零回归）；W3-E 训练域/导出 API 15 项通过；`check_lora_export` 活体刷新 latest，`prepare_lora_dataset` 生成 READY 数据集。下一步推进 **W3-F**（AutoDL LoRA 训练包）或按 `docs/19` 另开性能轮次。
 
 ---
 
@@ -126,6 +126,25 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### M7-W3-E ✅ · LoRA 数据质量门禁与数据集版本化
+
+**背景**：W2-G 已能导出 LoRA JSONL，但缺训练前质量门禁，且历史 smoke 只等到 `session_start` 就断开，导致 `lora_samples_latest.jsonl` 里出现只有“协作轨迹摘要：”的空样本。W3-E 补齐数据质量检查、版本化输出和导出端空轨迹过滤，避免垃圾样本直接进入训练。
+
+**关键实现**：
+- 新增 `src/reflexlearn/training/dataset_quality.py`：`QualityMetrics` / `QualityReport` 强类型报告，检查样本数、三段完整性、敏感泄漏、重复率、assistant 长度和关注节点覆盖率（critic/metacognition/generate_resource/debate/judge/pipeline）。
+- 新增 `src/reflexlearn/training/dataset_registry.py`：按 `logs/lora_datasets/YYYYMMDD-HHMMSS/` 写 `train.jsonl`、`manifest.json`、`quality_report.md`；质量通过才写 `READY` 标记，失败会移除旧 READY。
+- 新增 `scripts/jobs/training/prepare_lora_dataset.py` + `scripts/prepare_lora_dataset.sh`：默认读取 `logs/lora_samples/lora_samples_latest.jsonl`，质量不达标非 0 退出，所有运行仍走 scripts 入口并写 `logs/prepare_lora_dataset.log`。
+- 修改 `src/reflexlearn/training/lora_samples.py`：`load_lora_samples` 支持从 JSONL 读回强类型样本；只有 `session_start` 的空轨迹不再生成训练样本。
+- 修改 `scripts/checks/api/check_lora_export.sh`：LoRA 导出 smoke 等待 `generate_resource`/`assemble`/`path_plan`/resource/learning_path 等实质协作帧，避免刷新出空 latest。
+
+**验证结果**：
+- `bash scripts/test_unit.sh tests/unit/training/test_dataset_quality.py tests/unit/training/test_dataset_registry.py tests/unit/training/test_lora_samples.py tests/unit/collaboration/test_lora_export_api.py -q`：15 passed，1 warning。
+- `bash scripts/check_lora_export.sh 8010`：通过，latest JSONL 已脱敏，不含 user/token/Bearer，并包含 profile/planner/generate_resource/critic/assemble/path_plan 等真实协作节点。
+- `bash scripts/prepare_lora_dataset.sh`：通过，生成 READY 数据集版本，指标：sample_count=1、duplicate_rate=0、sensitive_leak_count=0、node_coverage=1.0。
+- `bash scripts/test_unit.sh`：**477 passed, 2 warnings**（W3-D 465→W3-E 477，零回归）。
+
+**诚实限制**：W3-E 只证明“训练前数据可检查、可版本化、可拒绝坏样本”，不证明 LoRA 模型收益；收益必须由 W3-G eval 对比证明。当前活体验收样本数仍很小，后续训练前应扩大轨迹样本并做人工抽检。
 
 ### M7-W3-D ✅ · 上传隔离区 + 扫描占位 + 签名 URL
 
