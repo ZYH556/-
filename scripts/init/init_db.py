@@ -148,6 +148,85 @@ CREATE TABLE IF NOT EXISTS llm_billing (
     latency_ms INT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS password_hash VARCHAR NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS password_alg VARCHAR NOT NULL DEFAULT 'pbkdf2_sha256',
+    ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
+ALTER TABLE learning_goals
+    ADD COLUMN IF NOT EXISTS tenant_id VARCHAR NOT NULL DEFAULT 'default';
+
+ALTER TABLE resources
+    ADD COLUMN IF NOT EXISTS user_id VARCHAR NOT NULL DEFAULT 'admin',
+    ADD COLUMN IF NOT EXISTS tenant_id VARCHAR NOT NULL DEFAULT 'default',
+    ADD COLUMN IF NOT EXISTS visibility VARCHAR NOT NULL DEFAULT 'private';
+
+CREATE TABLE IF NOT EXISTS mistakes (
+    mistake_id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL,
+    tenant_id VARCHAR NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    expected TEXT NOT NULL,
+    concept VARCHAR DEFAULT '',
+    source_resource_id VARCHAR DEFAULT '',
+    status VARCHAR DEFAULT 'open',
+    analysis JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mistakes_owner
+    ON mistakes (tenant_id, user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS collaboration_traces (
+    trace_id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL,
+    tenant_id VARCHAR NOT NULL,
+    session_id VARCHAR NOT NULL,
+    node VARCHAR NOT NULL,
+    event_type VARCHAR NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_collaboration_traces_owner
+    ON collaboration_traces (tenant_id, user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id VARCHAR PRIMARY KEY,
+    event_type VARCHAR NOT NULL,
+    user_id VARCHAR DEFAULT '',
+    tenant_id VARCHAR DEFAULT '',
+    ip VARCHAR DEFAULT '',
+    object_type VARCHAR DEFAULT '',
+    object_id VARCHAR DEFAULT '',
+    status VARCHAR DEFAULT 'ok',
+    detail JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_lookup
+    ON audit_events (tenant_id, event_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS upload_objects (
+    object_id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL,
+    tenant_id VARCHAR NOT NULL,
+    original_name VARCHAR NOT NULL,
+    status VARCHAR DEFAULT 'quarantined',
+    sha256 VARCHAR DEFAULT '',
+    size INT DEFAULT 0,
+    content_type VARCHAR DEFAULT '',
+    storage_key VARCHAR DEFAULT '',
+    reasons JSONB NOT NULL DEFAULT '[]',
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_objects_owner
+    ON upload_objects (tenant_id, user_id, created_at DESC);
 """
 
 

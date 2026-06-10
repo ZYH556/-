@@ -93,3 +93,26 @@ python_cmd() {
   echo ".venv python executable not found; create it with uv first" >&2
   return 127
 }
+
+docker_cmd() {
+  if command -v docker.exe >/dev/null 2>&1; then
+    command -v docker.exe
+    return
+  fi
+  local candidates=(
+    "/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"
+  )
+  for path in "${candidates[@]}"; do
+    if [[ -x "$path" ]]; then
+      printf '%s\n' "$path"
+      return
+    fi
+  done
+  if command -v docker >/dev/null 2>&1; then
+    command -v docker
+    return
+  fi
+
+  echo "docker executable not found; start Docker Desktop or enable WSL integration" >&2
+  return 127
+}

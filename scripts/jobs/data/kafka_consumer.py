@@ -1,7 +1,7 @@
 """Kafka 消费者进程：拉 knowledge.changes 增量事件 → ingest_document 入库（M4-C）。
 
 用法（项目根，需 docker compose 起 kafka + 后端 enable_kafka=true 投递事件）：
-    NO_PROXY='*' PYTHONPATH=src .venv/Scripts/python.exe scripts/kafka_consumer.py
+    NO_PROXY='*' PYTHONPATH=src .venv/Scripts/python.exe scripts/jobs/data/kafka_consumer.py
 broker 不可用时启动即报错退出（不影响后端主进程；后端 enable_kafka 上传会自动降级同步链路）。
 """
 from __future__ import annotations

@@ -1,0 +1,97 @@
+{
+  "uid": "reflexlearn-observability",
+  "title": "ReflexLearn Observability",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "HTTP Requests",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(reflexlearn_http_requests_total[1m]))",
+          "legendFormat": "rps"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP p95 Latency",
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(reflexlearn_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Agent Node p95 Latency",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(reflexlearn_agent_node_duration_seconds_bucket[5m])) by (le, node))",
+          "legendFormat": "{{node}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "LLM Tokens",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(reflexlearn_llm_tokens_total[5m])) by (kind, model)",
+          "legendFormat": "{{kind}} {{model}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "bargauge",
+      "title": "RAG Routes",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum(increase(reflexlearn_rag_routes_total[15m])) by (route)",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Video Jobs",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "targets": [
+        {
+          "expr": "sum(increase(reflexlearn_video_jobs_total[15m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Degradations",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "targets": [
+        {
+          "expr": "sum(increase(reflexlearn_degradations_total[15m])) by (component, reason)",
+          "legendFormat": "{{component}} {{reason}}"
+        }
+      ]
+    }
+  ]
+}

@@ -94,6 +94,9 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-docker.m.daocloud.io/}grafana/grafana:latest
     ports: ["13001:3000"]
     depends_on: [prometheus]
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards
     profiles: [observe]
 
 volumes:

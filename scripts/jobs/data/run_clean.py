@@ -1,7 +1,7 @@
 """批清洗作业入口（M4-D · docs/04 §6.2）：MinIO 原始 JSON Lines → 清洗 → 写回 MinIO。
 
 用法（项目根，需 docker 起 minio + enable_minio，原始数据已上传到 input_key）：
-    NO_PROXY='*' PYTHONPATH=src .venv/Scripts/python.exe scripts/run_clean.py raw/in.jsonl cleaned/out.jsonl
+    NO_PROXY='*' PYTHONPATH=src .venv/Scripts/python.exe scripts/jobs/data/run_clean.py raw/in.jsonl cleaned/out.jsonl
 无 MinIO 自动跳过；无 pyspark/pandas 自动降级纯 Python（清洗语义不变）。
 """
 from __future__ import annotations

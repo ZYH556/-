@@ -43,6 +43,7 @@ kafka = ["aiokafka>=0.10"]
 storage = ["minio>=7.2"]
 embedding = ["sentence-transformers>=3.0"]
 mem0 = ["mem0ai>=0.1"]
+mcp = ["mcp>=1.0"]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,8 +1,8 @@
 """知识入库：读 data/knowledge/*.md → 分块 → embed → upsert 到 qdrant knowledge_chunks。
 
 用法（项目根，需已装 embedding 依赖且模型可用）：
-    PYTHONPATH=src .venv/Scripts/python.exe scripts/ingest_knowledge.py
-先决条件：先跑 scripts/init_qdrant.py 建好 collection。
+    PYTHONPATH=src .venv/Scripts/python.exe scripts/jobs/data/ingest_knowledge.py
+先决条件：先跑 scripts/init/init_qdrant.py 建好 collection。
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from reflexlearn.common.config import get_settings
 from reflexlearn.common.db import get_qdrant
 from reflexlearn.common.embedding import embed_documents
 
-KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "data" / "knowledge"
+KNOWLEDGE_DIR = Path(__file__).resolve().parents[3] / "data" / "knowledge"
 
 
 def _chunk_markdown(text: str, max_chars: int = 500, overlap: int = 80) -> list[str]:

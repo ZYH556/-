@@ -4,7 +4,7 @@
 主题与 path_plan 的 concept，使回填可对上。全 MERGE 幂等（仿 ingest_knowledge.py），重跑覆盖不堆积。
 
 用法（项目根，需 docker compose --profile graph up -d neo4j 已起）：
-    NO_PROXY='*' PYTHONPATH=src .venv/Scripts/python.exe scripts/ingest_graph.py
+    NO_PROXY='*' PYTHONPATH=src .venv/Scripts/python.exe scripts/jobs/data/ingest_graph.py
 """
 from __future__ import annotations
 
