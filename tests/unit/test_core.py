@@ -171,7 +171,10 @@ def test_frontend_scripts_support_port_and_api_base_overrides():
     assert 'FRONTEND_API_BASE="${2:-${NEXT_PUBLIC_API_BASE:-http://localhost:8000/api}}"' in start_text
     assert 'NEXT_PUBLIC_API_BASE="$FRONTEND_API_BASE"' in start_text
     assert '--port "$FRONTEND_PORT"' in start_text
-    assert "cmd.exe /C" in start_text
+    # Git Bash 会把单斜杠 /C 做 MSYS 路径转换（→ C:\）导致 cmd 进入交互模式，
+    # 必须用 //C（cmd 收到的仍是 /C）。
+    assert "cmd.exe //C" in start_text
+    assert "cmd.exe /C \"" not in start_text
     assert "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& npm run dev" in start_text
     assert 'FRONTEND_API_BASE="${1:-${NEXT_PUBLIC_API_BASE:-http://localhost:8000/api}}"' in build_text
     assert "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& npm run build" in build_text

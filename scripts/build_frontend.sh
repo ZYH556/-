@@ -14,7 +14,7 @@ export NEXT_PUBLIC_API_BASE="$FRONTEND_API_BASE"
   log_header "build_frontend -> $NEXT_PUBLIC_API_BASE"
   cd "$PROJECT_ROOT/frontend"
   if command -v cmd.exe >/dev/null 2>&1; then
-    cmd.exe /C "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& npm run build"
+    cmd.exe //C "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& npm run build"
   else
     npm run build
   fi

@@ -54,13 +54,18 @@ class DocGenSkill:
                 duration_ms=duration,
             )
         except Exception as e:
+            # try 块只包 LLM 调用：无 key / key 失效(403) / 网络故障一律视为
+            # LLM 不可用，统一降级离线占位（与无 key 行为一致，绝不报错中断）。
             duration = int((time.time() - start) * 1000)
-            from reflexlearn.skills.offline import OFFLINE_TAG, offline_content
+            from reflexlearn.skills.offline import log_llm_fallback, offline_content
 
-            if OFFLINE_TAG in str(e):
-                return SkillResult(
-                    ok=True,
-                    data={"content": offline_content("doc", spec), "model_used": "offline"},
-                    duration_ms=duration,
-                )
-            return SkillResult(ok=False, error_type=str(type(e).__name__), duration_ms=duration)
+            log_llm_fallback(self.name, e)
+            return SkillResult(
+                ok=True,
+                data={
+                    "content": offline_content("doc", spec),
+                    "model_used": "offline",
+                    "degraded_from": type(e).__name__,
+                },
+                duration_ms=duration,
+            )

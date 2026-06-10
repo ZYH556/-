@@ -1,14 +1,33 @@
-"""无 LLM 凭证时的离线降级内容生成。
+"""LLM 不可用时的离线降级内容生成。
 
-当 LLMGateway 检测到未配置任何 API Key 时会抛出携带 OFFLINE_TAG 的异常，
-各生成类 Skill 捕获后调用此处函数产出结构化占位内容，保证：
-- 端到端链路在离线 / 无凭证环境下仍能产出多模态资源（演示、自测、前端联调可用）；
+生成类 Skill 的 try 块只包 LLMGateway.complete 调用，因此调用抛出的任何异常
+（未配置 key、key 失效如中转站 403 GROUP_DISABLED、网络不可达、网关 5xx）
+都意味着「本次 LLM 不可用」，各 Skill 统一调用此处函数产出结构化占位内容，保证：
+- 端到端链路在离线 / 无凭证 / 凭证失效环境下行为一致，仍能产出多模态资源；
 - 内容长度足以通过质量校验的规则兜底（len > 50）；
-- mindmap 产出合法 Mermaid 语法、code 产出带语言标注的代码块。
-配置任一 API Key 后将自动切换为真实 LLM 生成，本模块不再生效。
+- mindmap 产出合法 Mermaid 语法、code 产出带语言标注的代码块；
+- 降级有日志与 degraded_from 标注，绝不假装真实生成。
+LLM 恢复可用后自动切换为真实生成，本模块不再生效。
 """
 
+import logging
+
 OFFLINE_TAG = "no_api_key"
+
+logger = logging.getLogger(__name__)
+
+
+def log_llm_fallback(skill_name: str, exc: Exception) -> None:
+    """记录一次「LLM 不可用 → 离线占位」降级，无 key 走 info、其余异常走 warning。"""
+    if OFFLINE_TAG in str(exc):
+        logger.info("%s degraded (no api key) -> offline content", skill_name)
+    else:
+        logger.warning(
+            "%s degraded (llm %s: %s) -> offline content",
+            skill_name,
+            type(exc).__name__,
+            str(exc)[:120],
+        )
 
 
 def _concept(spec: dict) -> str:

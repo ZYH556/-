@@ -36,6 +36,8 @@ async def test_reading_gen_produces_recommendations():
 
 @pytest.mark.asyncio
 async def test_reading_gen_handles_llm_error():
+    """LLM 任意运行时错误（宕机/凭证失效等）与无 key 行为一致：降级离线占位。"""
+
     class FailLLM:
         async def complete(self, messages, **kwargs):
             raise RuntimeError("llm down")
@@ -46,5 +48,7 @@ async def test_reading_gen_handles_llm_error():
         SkillContext(user_id="u1", acl={}, task_id="t1"),
     )
 
-    assert result.ok is False
-    assert result.error_type == "RuntimeError"
+    assert result.ok
+    assert result.data["model_used"] == "offline"
+    assert result.data["degraded_from"] == "RuntimeError"
+    assert len(result.data["content"]) > 50

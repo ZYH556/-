@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-10 · 本轮成果：**M7 波次 3 · P0 安全合规闭环（W3-0/A/B/C/D）+ W3-E LoRA 数据质量门禁全部完成**——基线门禁、DB 用户+HttpOnly Cookie 会话、CSRF 双提交+登录限流+审计、AI Safety Gateway、上传隔离区+扫描+签名 URL、LoRA 训练前质量门禁与数据集版本化均落地。新增 `accounts/`、`security/`（csrf/rate_limit/audit/uploads/signed_url）、`safety/`、`training/`。波次 3 派工书见 `docs/17`：**W3-0~E ✅ → W3-F~I（AutoDL 训练包 / LoRA eval / 部署 / 验收，部分需 GPU/公网外部环境）**。验证基线：全量单测 **477 passed, 2 warnings**（W3-D 465→W3-E 477，零回归）；W3-E 训练域/导出 API 15 项通过；`check_lora_export` 活体刷新 latest，`prepare_lora_dataset` 生成 READY 数据集。下一步推进 **W3-F**（AutoDL LoRA 训练包）或按 `docs/19` 另开性能轮次。
+最后更新：2026-06-10 · 本轮成果：**运行修复轮：LLM 凭证失效降级一致性 + Windows 前端脚本修复 + 真实 LLM 全链路活体**——修复中转站 403（GROUP_DISABLED）导致 6 资源全失败→4 轮重规划→0 资源收场的降级判定 bug（6 个生成 skill 统一"任何 LLM 异常→离线占位"）；修复 `start_frontend.sh`/`build_frontend.sh` 的 `cmd.exe /C` 被 Git Bash 路径转换吞掉导致 npm 不执行 + 双进程占 :3000 静态资源 404。验证基线：全量单测 **484 passed**（477+7 降级测试）；活体：真实 LLM 全链路「线性回归入门」6 资源 + 6 步个性化路径 ~75s 收口 done 帧，前端多轮状态机正常。上一轮：M7 波次 3 · P0 安全闭环（W3-0~D）+ W3-E LoRA 数据质量门禁全部完成。下一步：用户亲手验收前端各页面（演示导览已交付），随后按 `docs/19` 性能轮次（PERF-B→C→A→D）或 W3-F。
 
 ---
 
@@ -126,6 +126,22 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### M7-RunFix ✅ · 运行修复：LLM 凭证失效降级一致性 + Windows 前端脚本
+
+**背景**：用户转入"亲手测试 + 前端优化"阶段，本轮把全栈跑起来供用户验收，过程中活体暴露两个运行级 bug 并修复。
+
+**关键修复**：
+- **生成 skill 降级判定缺口**：旧实现只对异常消息含 `OFFLINE_TAG`（no_api_key）走离线占位；中转站 403（`GROUP_DISABLED`，key 分组被停）抛 `HTTPStatusError` → `ok=False` → critic 全拒 → 4 轮重规划 → **0 资源 0 路径**收场（违反降级铁律）。修复：6 个 `*_gen` skill 的 try 块只包 LLM 调用，任何异常统一降级离线占位（`offline.log_llm_fallback` 记日志 + `degraded_from` 标注异常类型），"无 key"与"key 失效/网络故障"行为一致。`path_plan`/`quality_check` 原本已是全异常降级，未动。
+- **前端脚本 cmd.exe /C 被吞**：Git Bash 把单斜杠 `/C` 做 MSYS 路径转换（→ `C:\`），cmd 进入交互模式、npm 从未执行；叠加旧残留进程与新进程双监听 :3000，HTML 与静态资源由不同进程响应 → 全部 404、页面裸 HTML 无样式。修复 `start_frontend.sh`/`build_frontend.sh` 改 `//C` 并由 `test_core.py` 契约锁定。
+
+**验证结果**：
+- 红灯：新增 `tests/unit/flow/skills/test_llm_unavailable_fallback.py` 7 项（6 skill×403 + ConnectError）初跑全红。
+- 绿灯：`bash scripts/test_unit.sh`：**484 passed, 2 warnings**（477→484；`test_reading_gen_handles_llm_error` 按新契约更新为降级断言）。
+- 活体（中转站 13:31 恢复后）：`/chat` 真实 LLM 全链路「线性回归入门」一轮过验收：**6 资源 + 6 步个性化学习路径**（带 depends_on/难度/objective/个性化 strategy），~75s 收口 `event: done`；前端 done 后正常解锁输入框，多轮可继续。`check_api_security.sh 8000` 7 项通过。
+- 服务态：8 容器全在（PG/Redis/Qdrant/Neo4j/Kafka/MinIO/Prometheus/Grafana）、后端 :8000、前端 :3000（dev）。
+
+**诚实限制**：403 场景因中转站当日自行恢复无法再活体复现，降级行为由 7 个单测锁定；中转站稳定性是外部不可控变量（docs/19 §1 因素 6），凭证侧防线=降级占位 + 日志 + degraded_from 可审计。reranker 模型仍未下载（rerank 走 weighted_sort 降级）；RAG semantic 路有一处 "qdrant failed" 空消息警告待查（不影响 keyword/graph 路与最终生成）。
 
 ### M7-W3-E ✅ · LoRA 数据质量门禁与数据集版本化
 
@@ -1103,6 +1119,6 @@ DB/模型不可用→try/except 降级。每个新功能必须配降级矩阵。
 
 ## 8. 测试与验证基线
 
-- **单测**：`tests/unit` 根目录 1 个 Python 测试文件，递归共 50+ 个 Python 测试文件，**477 passed, 2 warnings**（2026-06-10 W3-E 完成后更新；W2 基线 400 + W3-0 边界 4 + W3-A 15 + W3-B 19 + W3-C safety 15 + W3-D upload/signed_url 12 + W3-E training 12），hermetic（conftest 拦 `_get_model`/`_get_reranker`/`get_qdrant`，**不拦 `get_redis`/`get_pg_pool`/`get_neo4j`** → 多轮/写链路测试须在封装层 mock 或**注入假对象**，绝不让被测函数内自取 pg/redis）。新功能必须配单测 + 降级测试。
+- **单测**：`tests/unit` 根目录 1 个 Python 测试文件，递归共 50+ 个 Python 测试文件，**484 passed, 2 warnings**（2026-06-10 RunFix 后更新；W2 基线 400 + W3-0 边界 4 + W3-A 15 + W3-B 19 + W3-C safety 15 + W3-D upload/signed_url 12 + W3-E training 12 + RunFix 降级 7），hermetic（conftest 拦 `_get_model`/`_get_reranker`/`get_qdrant`，**不拦 `get_redis`/`get_pg_pool`/`get_neo4j`** → 多轮/写链路测试须在封装层 mock 或**注入假对象**，绝不让被测函数内自取 pg/redis）。新功能必须配单测 + 降级测试。
 - **活体验证套路**：无凭证跑 `run_session()` 验证降级路径；带 RAG 后端 curl SSE 验证端到端帧。临时脚本放 `scripts/_verify_*.py`，验完即删。
 - **零回归原则**：集成测试抓 assemble 帧、不断言图终止点；新增 state 字段用 `.get()` 读，不破坏手构 state 的测试。
