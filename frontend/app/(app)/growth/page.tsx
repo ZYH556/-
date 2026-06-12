@@ -1,24 +1,54 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Download, FileDown, Filter, ShieldCheck, Sparkles, Sprout } from "lucide-react";
 
-import { GlassButton, GlassCard } from "@/components/glass";
+import { GrowthEvidence } from "@/components/growth/GrowthEvidence";
+import { GrowthSummary } from "@/components/growth/GrowthSummary";
+import {
+  EmptyState,
+  PageHeader,
+  StatCard,
+  Tag,
+  WsButton,
+  WsCard,
+} from "@/components/workspace";
 import { apiJson, getErrorMessage } from "@/lib/apiClient";
 import { useAuthSession } from "@/lib/authContext";
-import type { CollaborationTraceEvent, LoraExportRecord, LoraExportResult } from "@/lib/types";
+import { getProfileHistory, getProfileSummary } from "@/lib/profileApi";
+import { fallbackToday } from "@/lib/todayFallback";
+import { getTodaySummary } from "@/lib/todayApi";
+import type {
+  CollaborationTraceEvent,
+  LoraExportRecord,
+  LoraExportResult,
+  ProfileSummary,
+  ProfileTrend,
+  TodaySummaryView,
+} from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
 export default function GrowthPage() {
   const { auth } = useAuthSession();
+  const [profile, setProfile] = useState<ProfileSummary | null>(null);
+  const [trend, setTrend] = useState<ProfileTrend | null>(null);
+  const [today, setToday] = useState<TodaySummaryView>(fallbackToday);
   const [items, setItems] = useState<CollaborationTraceEvent[]>([]);
   const [exports, setExports] = useState<LoraExportRecord[]>([]);
   const [latest, setLatest] = useState<LoraExportResult | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    Promise.allSettled([
+      getProfileSummary(auth.access_token),
+      getProfileHistory(auth.access_token),
+      getTodaySummary(auth.access_token),
       apiJson<{ items: CollaborationTraceEvent[] }>(
         `${API_BASE}/collaboration/traces`,
         auth.access_token,
@@ -28,11 +58,24 @@ export default function GrowthPage() {
         auth.access_token,
       ),
     ])
-      .then(([traceData, exportData]) => {
-        setItems(traceData.items);
-        setExports(exportData.items);
+      .then(([profileResult, trendResult, todayResult, traceResult, exportResult]) => {
+        if (cancelled) return;
+        if (profileResult.status === "fulfilled") setProfile(profileResult.value);
+        if (trendResult.status === "fulfilled") setTrend(trendResult.value);
+        if (todayResult.status === "fulfilled") setToday(todayResult.value);
+        if (traceResult.status === "fulfilled") setItems(traceResult.value.items);
+        if (exportResult.status === "fulfilled") setExports(exportResult.value.items);
+        const failures = [profileResult, trendResult, todayResult, traceResult, exportResult].filter(
+          (result) => result.status === "rejected",
+        );
+        if (failures.length > 0) setError("部分成长记录暂时无法同步，当前页面已保留可用内容。");
       })
-      .catch((e: unknown) => setError(getErrorMessage(e)));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [auth.access_token]);
 
   const exportSamples = async () => {
@@ -61,58 +104,141 @@ export default function GrowthPage() {
     }
   };
 
+  const sanitized = latest?.sanitized ?? exports[0]?.sanitized;
+  const latestPath = latest?.file_path ?? exports[0]?.file_path;
+
   return (
-    <section className="space-y-4">
-      <h1 className="text-2xl font-semibold text-white">成长档案</h1>
-      <GlassCard tone="mint" eyebrow="wave 2" title="LoRA 样本导出">
-        {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-        <div className="mt-3 grid gap-3 text-sm text-white/70 md:grid-cols-3">
-          <div className="rounded-2xl bg-white/10 p-3">
-            <div className="text-xs text-white/45">最近样本数</div>
-            <div className="mt-1 text-2xl font-semibold text-white">
-              {latest?.sample_count ?? exports[0]?.sample_count ?? 0}
-            </div>
-          </div>
-          <div className="rounded-2xl bg-white/10 p-3">
-            <div className="text-xs text-white/45">过滤轨迹</div>
-            <div className="mt-1 text-2xl font-semibold text-white">
-              {latest?.filtered_count ?? 0}
-            </div>
-          </div>
-          <div className="rounded-2xl bg-white/10 p-3">
-            <div className="text-xs text-white/45">脱敏状态</div>
-            <div className="mt-1 text-lg font-semibold text-white">
-              {(latest?.sanitized ?? exports[0]?.sanitized) ? "已脱敏" : "暂无导出"}
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <GlassButton variant="primary" onClick={exportSamples} disabled={exporting}>
-            {exporting ? "导出中" : "导出样本"}
-          </GlassButton>
-          <span className="max-w-full break-all text-xs text-white/50">
-            {latest?.file_path ?? exports[0]?.file_path ?? "暂无导出文件"}
-          </span>
-        </div>
-      </GlassCard>
-      <GlassCard tone="aurora" eyebrow="wave 2" title="协作轨迹">
-        <div className="mt-3 space-y-2 text-sm text-white/70">
-          {items.length === 0 ? <p>暂无轨迹。完成一次对话后，这里会显示 Agent 节点事件。</p> : null}
-          {items.map((item) => (
-            <div key={item.trace_id} className="rounded-2xl bg-white/10 p-3">
-              <div className="flex items-center justify-between gap-3 text-white">
-                <span>{item.node}</span>
-                <span className="text-xs text-white/50">
-                  {new Date(item.created_at * 1000).toLocaleString()}
-                </span>
-              </div>
-              <pre className="mt-2 overflow-auto text-xs text-white/60">
-                {JSON.stringify(item.payload, null, 2)}
-              </pre>
-            </div>
+    <section className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+      <PageHeader
+        eyebrow="Growth"
+        title="成长档案"
+        description="把路径推进、薄弱点变化、复习状态和学习证据放在同一页，帮助你判断下一段学习是否真的变稳。"
+        actions={
+          <WsButton variant="primary" onClick={exportSamples} disabled={exporting}>
+            <Download size={15} aria-hidden />
+            {exporting ? "导出中…" : "导出训练样本"}
+          </WsButton>
+        }
+      />
+
+      {error ? (
+        <p className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {error}
+        </p>
+      ) : null}
+
+      {loading ? (
+        <GrowthSkeleton />
+      ) : (
+        <>
+          <GrowthSummary profile={profile} trend={trend} today={today} traceCount={items.length} />
+          <GrowthEvidence
+            profile={profile}
+            trend={trend}
+            today={today}
+            traces={items}
+            reviews={today.reviewQueue}
+          />
+          <TechnicalEvidence
+            items={items}
+            latest={latest}
+            exports={exports}
+            sanitized={sanitized}
+            latestPath={latestPath}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function GrowthSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <div className="ws-skeleton h-72" />
+        <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="ws-skeleton h-28" />
           ))}
         </div>
-      </GlassCard>
-    </section>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="ws-skeleton h-56" />
+        <div className="ws-skeleton h-56" />
+      </div>
+    </div>
+  );
+}
+
+function TechnicalEvidence({
+  items,
+  latest,
+  exports,
+  sanitized,
+  latestPath,
+}: {
+  items: CollaborationTraceEvent[];
+  latest: LoraExportResult | null;
+  exports: LoraExportRecord[];
+  sanitized?: boolean;
+  latestPath?: string;
+}) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,0.74fr)_minmax(0,1.26fr)]">
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+          <StatCard
+            label="最近样本数"
+            icon={Sparkles}
+            value={latest?.sample_count ?? exports[0]?.sample_count ?? 0}
+          />
+          <StatCard label="过滤轨迹" icon={Filter} value={latest?.filtered_count ?? 0} />
+          <StatCard
+            label="脱敏状态"
+            icon={ShieldCheck}
+            value={
+              sanitized ? (
+                <Tag tone="success" className="text-sm">已脱敏</Tag>
+              ) : (
+                <Tag tone="neutral" className="text-sm">暂无导出</Tag>
+              )
+            }
+            hint={latestPath ? undefined : "导出后会生成可审计的 JSONL 文件"}
+          />
+        </div>
+        {latestPath ? (
+          <p className="flex items-start gap-2 break-all text-xs text-slate-500">
+            <FileDown size={14} className="mt-0.5 shrink-0" aria-hidden />
+            {latestPath}
+          </p>
+        ) : null}
+      </div>
+
+      <WsCard title="协作轨迹" eyebrow="Technical Evidence">
+        {items.length === 0 ? (
+          <EmptyState
+            icon={Sprout}
+            title="暂无协作轨迹"
+            description="完成一次 AI 导师对话后，画像、规划、生成、批判等节点会形成可追溯记录。"
+          />
+        ) : (
+          <ol className="ml-2 border-l border-[var(--ws-line-strong)]">
+            {items.slice(0, 8).map((item) => (
+              <li key={item.trace_id} className="relative pb-6 pl-6 last:pb-1">
+                <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-[var(--ws-navy)]" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-[var(--ws-ink)]">{item.node}</span>
+                  <span className="text-xs text-slate-500">
+                    {new Date(item.created_at * 1000).toLocaleString()}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{item.event_type}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </WsCard>
+    </div>
   );
 }

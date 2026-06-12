@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _VALID_ROLES = {"student", "teacher", "admin", "evaluator"}
 # demo fallback 仅在 development 生效、安全不敏感：用低迭代加速本地/单测。
 _DEMO_ITERATIONS = 1000
+_MEMORY_ACCOUNTS: dict[str, Account] = {}
 
 
 def _role(value: str | None) -> Role:
@@ -46,6 +47,9 @@ class AccountStore:
                     return _row_to_account(row)
             except Exception as exc:  # noqa: BLE001 - 降级铁律
                 logger.info("account lookup degraded: %s", exc)
+        memory_account = _MEMORY_ACCOUNTS.get(username)
+        if memory_account is not None:
+            return memory_account
         return self._demo_account(username)
 
     async def authenticate(self, username: str, password: str) -> Account:
@@ -76,6 +80,7 @@ class AccountStore:
             disabled=disabled,
         )
         if self._pg is None:
+            _MEMORY_ACCOUNTS[account.user_id] = account
             return account
         try:
             async with self._pg.acquire() as conn:

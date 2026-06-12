@@ -27,7 +27,7 @@ export interface Turn {
 }
 
 type Action =
-  | { type: "start"; message: string }
+  | { type: "start"; message: string; displayMessage?: string }
   | { type: "agent_step"; payload: AgentStep }
   | { type: "resource_card"; payload: ResourceCard }
   | { type: "debate_round"; payload: DebateRound }
@@ -37,10 +37,10 @@ type Action =
   | { type: "error"; payload: string }
   | { type: "reset" };
 
-function newTurn(id: number, message: string): Turn {
+function newTurn(id: number, message: string, displayMessage?: string): Turn {
   return {
     id,
-    userMessage: message,
+    userMessage: displayMessage || message,
     status: "streaming",
     steps: [],
     cards: new Map(),
@@ -62,7 +62,7 @@ function updateLast(turns: Turn[], fn: (t: Turn) => Turn): Turn[] {
 function reducer(turns: Turn[], action: Action): Turn[] {
   switch (action.type) {
     case "start":
-      return [...turns, newTurn(turns.length, action.message)];
+      return [...turns, newTurn(turns.length, action.message, action.displayMessage)];
     case "agent_step":
       return updateLast(turns, (t) => ({ ...t, steps: [...t.steps, action.payload] }));
     case "resource_card":
@@ -138,14 +138,14 @@ export function useChat(token: string) {
     sessionRef.current = getStoredChatSession();
   }, []);
 
-  const send = useCallback(async (message: string) => {
+  const send = useCallback(async (message: string, displayMessage?: string) => {
     if (!message.trim()) return;
     abortRef.current?.abort(); // 取消上一次未完成的流，避免事件串台
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    dispatch({ type: "start", message });
+    dispatch({ type: "start", message, displayMessage });
 
-    const base = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+    const base = process.env.NEXT_PUBLIC_API_BASE || "/api";
     let errored = false;
     try {
       for await (const msg of parseSSEStream(

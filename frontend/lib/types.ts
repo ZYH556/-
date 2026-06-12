@@ -199,12 +199,87 @@ export interface LearningSpace {
   status: string;
 }
 
-export interface LearningResource {
+export interface SpacePathStep {
+  sequence: number;
+  task_ref: string;
+  resource_type: string;
+  concept: string;
+  objective: string;
+  rationale: string;
+  difficulty: number;
+  mastery_status: string;
+}
+
+export interface SpaceResource {
   resource_id: string;
   type: string;
   title: string;
-  content_preview: string;
-  visibility: string;
+  concept: string;
+  content: string;
+  quality_score?: number | null;
+}
+
+export interface SpaceDetail {
+  space_id: string;
+  user_id: string;
+  tenant_id: string;
+  title: string;
+  course: string;
+  status: string;
+  progress: number;
+  path_summary: string;
+  path_strategy: string;
+  steps: SpacePathStep[];
+  resources: SpaceResource[];
+  degraded: string[];
+}
+
+export interface MistakeStats {
+  total: number;
+  open: number;
+  top_concepts: string[];
+}
+
+export interface ProfileSummary {
+  user_id: string;
+  goal: string;
+  knowledge_base: Record<string, number>;
+  weak_points: string[];
+  cognitive_style: string;
+  preferences: Record<string, unknown>;
+  progress: number;
+  mistake_stats: MistakeStats;
+  spaces_count: number;
+  resources_count: number;
+  source: string;
+  degraded: string[];
+}
+
+export interface ProfileHistorySnapshot {
+  version: number;
+  created_at: number;
+  goal: string;
+  progress: number;
+  weak_points: string[];
+  knowledge_base: Record<string, number>;
+}
+
+export interface ProfileTrend {
+  items: ProfileHistorySnapshot[];
+  start_progress: number;
+  latest_progress: number;
+  progress_delta: number;
+  resolved_weak_points: string[];
+  new_weak_points: string[];
+  mastery_delta: Record<string, number>;
+  degraded: string[];
+}
+
+export interface TutorReply {
+  answer: string;
+  degraded: boolean;
+  blocked: boolean;
+  reasons: string[];
 }
 
 export interface KnowledgeDocument {
@@ -214,3 +289,21 @@ export interface KnowledgeDocument {
   course_id: string;
   format: string;
 }
+
+export type {
+  TodayLearningPathNode,
+  TodayPathStatus,
+  TodayProfileSignal,
+  TodayQuickActionView,
+  TodayResource,
+  TodayResourceKind,
+  TodayResourceView,
+  TodayReviewItem,
+  TodayReviewItemView,
+  TodaySummary,
+  TodaySummaryView,
+  TodayTask,
+  TodayTaskView,
+} from "./todayTypes";
+
+export type { LearningResource, LearningResourceKind } from "./resourceTypes";

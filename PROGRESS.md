@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-10 · 本轮成果：**运行修复轮：LLM 凭证失效降级一致性 + Windows 前端脚本修复 + 真实 LLM 全链路活体**——修复中转站 403（GROUP_DISABLED）导致 6 资源全失败→4 轮重规划→0 资源收场的降级判定 bug（6 个生成 skill 统一"任何 LLM 异常→离线占位"）；修复 `start_frontend.sh`/`build_frontend.sh` 的 `cmd.exe /C` 被 Git Bash 路径转换吞掉导致 npm 不执行 + 双进程占 :3000 静态资源 404。验证基线：全量单测 **484 passed**（477+7 降级测试）；活体：真实 LLM 全链路「线性回归入门」6 资源 + 6 步个性化路径 ~75s 收口 done 帧，前端多轮状态机正常。上一轮：M7 波次 3 · P0 安全闭环（W3-0~D）+ W3-E LoRA 数据质量门禁全部完成。下一步：用户亲手验收前端各页面（演示导览已交付），随后按 `docs/19` 性能轮次（PERF-B→C→A→D）或 W3-F。
+最后更新：2026-06-13 · 本轮成果：**Claude 全栈接管首轮：codex 交付验收 + 沉淀闭环三波推进**——①验收 codex 资源发现/画像历史交付并修 2 处（`/api/profile` 每次请求都写快照 → 同质快照灌满趋势窗口（LIMIT 20）致真趋势事实失效，改为**内容变化才写** + 3 单测活体复验；resources 页 fallback 薄弱点顿号串 flatMap 拆分）；②产品化小账：resourceView/SpaceResources 补 mindmap/debate 映射、SpaceHero 不再裸露机器 course id（slug 形态过滤）、空间资源平铺改按类型分组 `<details>` 折叠卷宗、114 条种子资源 SQL 补 meta provider/source_label/href（来源分类 UX 可见）；③/plan「行程单 Itinerary」+ /growth「成长对账单 Ledger」档案化（复用 ProfileGauges + 新增 `GrowthTrendChart.tsx`：进度火花线 stroke-dashoffset 手绘入场 / 知识点 leader-dots 对账 / 快照<2 诚实占位「收集中 N/2」；workspace.css +ws-leader）；④**候选资源一键保存闭环**（用户路线 #1）：`LearningAssetStore.save_resource`（candidate_id 幂等 + PG 降级内存，assets.py 295 行压线）+ `POST /api/resources/save` + 前端保存按钮/已入库态/onSaved 列表刷新，端到端活体 PG 落库（origin=discover, 114→115）；⑤修 `test_lora_export_api` 非 hermetic（Docker PG 可达时 `safe_pg_pool` 真连转读 PG、测试轨迹在内存 store → monkeypatch 强制 None；**隐患样板：路由层测试必须 mock safe_pg_pool，否则结果随 Docker 状态漂移**）；⑥新增 `docs/23-产品战略审视与商业落地路线.md`（主线校验/学习者/商业/压测/评审四视角不足/用户 9 方向编排为 W1-W4）。验证：全量 **526 passed, 2 warnings**；tsc 0 错；check_frontend_ia/check_profile_page ok；活体截图 ws-plan-itinerary / ws-growth-ledger-trend / ws-resources-save-flow.png。**协议变更：用户拍板 codex 暂停写码，Claude 承接全栈与前端创新，审查后可直接定计划实施；资源缺口（GPU/key/搜索配额）降级占位待补**。下一轮入口见 docs/23 §5。上一轮：资源发现后端 + 画像历史趋势后端落地（codex 后端轮）。
 
 ---
 
@@ -91,7 +91,7 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 - **W2-G LoRA 样本导出**：新增 `scripts/check_lora_export.sh`，通过 API 触发一次对话轨迹、导出 `logs/lora_samples/*.jsonl` 与 `lora_samples_latest.jsonl`，并校验 JSONL 无明文 `user_id/token/Bearer`。该能力只是训练数据 MVP，不代表已经训练 LoRA 或证明微调收益。
 - **波次 2 活体**：本轮执行 `bash scripts/check_wave2_live.sh` 通过：真实 Qdrant `experience_memory` 过期低命中点写入后被 `forget_stale` 删除（`deleted=1`），真实 Neo4j 图谱自生长写入成功（`status=ok concepts=2 relations=1 count=1`），直接 MERGE 活体也通过。该脚本依赖 Graph 服务可用，后续可用 `bash scripts/start_graph.sh && bash scripts/init_all.sh && bash scripts/check_wave2_live.sh` 复跑。
 - **后端**：本轮临时启动 `:8002` 并执行 `bash scripts/check_api_security.sh 8002`，安全冒烟通过：health、未登录 401、auth login、auth me、非法上传 415、视频提交鉴权均 OK；随后已执行 `bash scripts/stop_api.sh 8002` 清理，当前未保留 8001/8002 常驻监听。`scripts/check_api.sh` 现在默认转发安全冒烟；Qdrant/PG 真写需显式运行 `scripts/check_api_integrations.sh`。
-- **前端**：本轮完成灵动玻璃设计系统与工作台 IA；`bash scripts/build_frontend.sh` 构建通过，路由增至 13 个：`/`、`/design`、`/tracks/[slug]`、`/chat`、`/spaces`、`/plan`、`/resources`、`/knowledge`、`/mistakes`、`/growth` 等。`/chat` 保留旧 SSE/上传/视频工作区逻辑，首屏仍为 467kB；本机 `:3000` 当前可访问，`/spaces`、`/chat`、`/tracks/ai-programming` 均已 HTTP 200 验证。
+- **前端**：本轮清理双 dev 事故后仅保留 :3001（`bash scripts/start_frontend.sh 3001`，.next 已重建），:3000 已清空；路由含新增 `/profile`（学习档案视觉版）。验收 check_profile_page/check_frontend_ia/check_today_page 全 ok，/profile、/plan、/growth、/resources、/today 活体 200。**红线：dev 运行中严禁跑 `build_frontend.sh`（共写 .next 会 chunk 断裂，本轮已实证；build 前先 stop_frontend）。**
 - **依赖中间件**：2026-06-08 本轮已通过 Docker Desktop Windows CLI 兼容重启并验证：Observe（Prometheus :19090、Grafana :13001）、Graph（PG :15432、Redis :16379、Qdrant :16333/:16334、Neo4j :17474/:17687）、Bigdata（Kafka :19092、MinIO :19000/:19001）均已起；`scripts/check_bigdata.sh` 通过 Kafka produce/consume + MinIO put/get/remove；`scripts/init_all.sh` 通过 PG schema、Qdrant collections/index、Neo4j 种子图谱初始化；`scripts/check_api_integrations.sh 8003` 通过知识上传真实写 Qdrant/PG 和视频 degraded 活检。Kafka 新建 health topic 时会出现短暂 metadata/leader warning，最终读写成功即可。
 - **知识写链路（M4-A/B）**：`POST /api/knowledge/upload`（multipart：`file` + `course_id`/`user_id`/`tenant_id`/`visibility`/`title`/`enable_contextual`/`enable_graph_build`）→ 解析/分块/向量化/入库 +（可选）LLM 抽概念/先修关系入 Neo4j，返回 `IngestResult`（chunks/embedded/qdrant_written/pg_written/contextual/**graph/graph_concepts/graph_relations**/degraded/status）。唯一写入口 `data_engineering/ingest.py:ingest_document`（B 图谱已并入第 6.5 步；C Kafka 共用）。
 - **增量链路（M4-C 新增）**：`enable_kafka=true` 时上传走异步——投递 `knowledge.changes` 事件、消费进程 `scripts/jobs/data/kafka_consumer.py` 异步入库（复用 `ingest_document`）；broker 不可用上传自动降级同步。aiokafka 0.14.0 已装；Kafka 当前在 :19092，`scripts/check_bigdata.sh` 已验证 produce/consume。
@@ -127,17 +127,111 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
 
+### H-Review ✅ · H1-H4 验收修复 + /profile「学习档案」视觉升级（Claude 前端轮）
+
+**背景**：分工切换——前端归 Claude、codex 转后端。codex 按 `discuss/H阶段学习闭环产品化执行计划.md` 连续交付 H1 `/profile`、H2 `/plan`、H3 `/growth`、H4 资源发现入口；Claude 逐轮独立验收（codex 看不到审批结果，问题直接就地修，全程避开其活跃区——动文件前查 mtime）。
+
+**验收修复（4 处）**：
+- `frontend/lib/nav.ts`：growth 描述「查看画像和自进化轨迹」→「能力随时间的变化与自进化轨迹」（/profile=当下快照、/growth=时间趋势，划清双入口边界）。
+- `frontend/components/growth/GrowthEvidence.tsx`：薄弱点兜底误用 `today.profileSignals.map(s=>s.value)`（profile 接口失败时会把「62%」「视频讲解 + 五题短练习」当薄弱点渲染成 warning Tag）→ 改 `profile?.weak_points ?? []` 走既有空状态。
+- `frontend/components/growth/GrowthSummary.tsx`：删同源 progress 伪 delta（`/api/profile` 与 `/api/today` 的 progress 同源，delta 恒 0）、「能力变化」文案改诚实；真趋势待后端画像快照历史表（已移交 codex，越早落库越早有数据）。
+- `frontend/components/resource/ResourceDiscovery.tsx`：fallback 薄弱点是顿号连接串（「A、B、C」整条渲染成一个长 Tag）→ `flatMap(v=>v.split("、"))` 拆分。
+
+**/profile 档案化（设计概念：学习档案 Learner's Dossier，印刷品隐喻贴合暖白×海军蓝）**：
+- 新增 `frontend/components/profile/ProfileGauges.tsx`（152 行）：`ProgressRing`（SVG stroke-dashoffset 1.1s 生长 + serif 数字 count-up）、`MasteryMeter`（印刷尺刻度条，`ws-ticks` 卡片底色细线每 10% 切一刀，依次延迟生长，role=meter 无障碍）、`DossierStat`（大号 serif count-up 统计）、`useCountUp`（rAF，自理 prefers-reduced-motion——globals 只压 CSS 动画压不到 rAF）。
+- 重构 `ProfileOverview.tsx`（79 行）：印章三态数据来源（redis=实时记忆青 / pg=历史画像灰 / empty=待完善 amber，`ws-stamp` 双线框微倾斜 hover 回正）+ PROFILE Nº 编号（user_id 前 8 位）+ 目标 serif 大字 + 环形进度不对称构图 + 三 stat 卡 90/170/250ms stagger。
+- 重构 `ProfileEvidence.tsx`（199 行）：知识基础刻度条阵列；薄弱点 №01-08 编号排序（首位「最优先」accent，与错题 top_concepts 交叉命中标「错题印证」warning——画像证据链首版落地）；错题模式双大数字 count-up + 高频概念铅字排名（01/02/03 大号淡 serif）；偏好虚线档案条目。
+- `frontend/app/(app)/workspace.css` 91→148 行：`ws-rise`（入场）、`ws-stamp`（印章）、`ws-ticks`（刻度轨道）。`check_profile_page.sh` 的 grep 关键词断言全程保留，`page.tsx` 零改动。
+
+**事故修复**：codex 验证 H2-H4 时在 dev 运行中反复跑 `build_frontend.sh`（已知坑：dev/build 共写 `.next`），叠加 :3000 还遗留一组更早的 dev 进程（三方共写），/profile 热更新后 chunk 断裂（`Cannot find module './4985.js'`，webpack-runtime require stack）。处置：`stop_frontend.sh 3001` + `stop_frontend.sh`（清 :3000 双进程）→ `rm -rf frontend/.next` → `start_frontend.sh 3001` 重建（Ready 3.4s，/profile 冷编译 43.9s 后 200）。
+
+**验证结果**：`check_profile_page`/`check_frontend_ia`/`check_today_page` 全 ok；tsc 0 错；五核心页活体 200；Playwright 桌面全页 + 390px 移动端截图（`ws-profile-dossier.png`/`ws-profile-mobile.png`）——印章/刻度/排名/count-up 全部生效，移动端单列无溢出；环形 0% 为 admin 画像真实 progress（诚实呈现，非 bug）；「错题印证」未现身因当前薄弱点与错题概念确实无交集（逻辑验证正确）。行数规约全过（≤300）。**移交 codex（后端）**：`POST /api/resources/discover`、画像快照历史表（/growth 真趋势）、tutor 流式或「仍在整理答案…」中间态。**前端 backlog**：牛牛面板避让策略、/plan //growth 同款档案化视觉（待用户验收 /profile 方向后铺开）。
+
+
+### M8-Pet ✅ · AI 学伴「牛牛」产品化（companion/ 六状态 + 2D 漫游 + 拖拽）+ 产品化进度审查
+
+**背景**：用户提供 CodexPet 标准宠物包（`E:\archives\zip`：1536×1872 = 8 列×9 行，单帧 192×208），按 docs/21 定位（学习陪伴代理，非聊天按钮）+ docs/22 §7.1 验收做产品级首版；后追加需求：全屏上下左右乱跑 + 可拖拽。本轮与另一会话（E1）并行，避开其活跃区。
+
+**关键实现**：
+- 资产：`frontend/public/pets/cow/spritesheet.webp`（Pillow q88，2.4MB→566KB）；行映射：0 待机/1 走路/2 受挫/3 开心/4 庆祝/5 睡觉/6 思考/7 敲电脑/8 看书。
+- 新增 `frontend/components/companion/`（7 文件）：`sprites.ts`（精灵元数据）、`companionState.ts`（六产品状态 idle/thinking/running/waiting/success/failed→精灵行映射 + `describePage` 页面上下文含 /spaces/[id] 的 space_id 提取 + `buildContextHint` + `companion:status` CustomEvent 后台联动入口）、`CompanionAvatar.tsx`（CSS 逐帧动画，prefers-reduced-motion 静帧，idle 120s 自动入睡）、`useCompanionRoam.ts`（**2D 漫游**：视口内随机目标、顶部留 96px 防遮页头、<768px 不漫游只可拖、面板打开走回右下角家位）、`CompanionPanel.tsx`（暖白纸面板：上下文行「正在陪你看：X · 状态」+问答+输入）、`LearningCompanion.tsx`（编排：**拖拽**（>6px 判拖、落点夹回视口、click 抑制）、悬停停步（只认 mouse 指针）、调 `/api/tutor/ask` 带 question+context_hint、thinking→success/failed 状态机、/chat 自动退场、mounted 前不渲染防水合闪烁）、`index.ts`。
+- `(app)/layout.tsx` 挂 `<LearningCompanion />`；`FloatingTutor.tsx` 恢复原始 FAB 版本退役保留（无人引用）。
+- **scripts 修复**：`start_frontend.sh`/`build_frontend.sh` 的 cmd.exe 行加 `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'`——Git Bash 不再把 /C、/api 转成 D:/Program Files/Git/...（契约 `cmd.exe /C` 子串保留，test_core 契约测试通过）。
+
+**验证结果**：`bash scripts/check_today_page.sh` ok；`bash scripts/check_frontend_ia.sh` ok；`bash scripts/build_frontend.sh` 通过（14 路由，Git Bash 原生首通）；`bash scripts/test_unit.sh`（today/assets/demo_seed/today_api/前端脚本契约）**12 passed**。活体：底部漫游版已浏览器验证（截图 companion-roaming.png：牛牛走到页面中部）+ 面板/状态机验证；**2D+拖拽版 build 通过但浏览器活体未完成**（dev server 被会话后台任务回收反复秒死，环境因素非代码），交 codex 验证：登录 → 看牛牛全屏乱走 → 鼠标悬停应停步 → 点击开面板（上下文行）→ 拖拽换位 → 提问看 思考中/庆祝/受挫 状态。
+
+**审查结论（同轮完成，证据见截图 review-*.png）**：A1/A2/A3/B1/C1/D1 代码质量高、TDD 到位（today/seed/assets 单测 11 项全过）；但 ①B1 末两步未完——`demo_seed.py` 无任何脚本引用，新种子（B 站视频/官方资料/oer 元数据）没灌库，PG 里仍是 M8-P1 旧 114 资源（provider 全空），D1 的来源分类 UX 实际不可见；②`/spaces/[id]` 把 60 资源平铺超长列表，违反计划书「禁止堆成后台表格」；③resources 页 RESOURCE_VIEW 缺 mindmap/debate 旧类型映射（20 条 mindmap 落兜底「学习资源」）；④空间详情把 course id「seed-demo」裸露给用户（文案红线 demo 字样）；⑤`check_productized_learning.sh` 未建。环境真相：用户「看不到效果」系三重环境问题——:3000 被 portfolio-site-deploy 占用、后端是 6-11 23:35 旧进程（无 /today 路由 404→前端静默 fallback 静态数据）、Docker Desktop 掉线 PG 不可用；本轮已拉起 Docker+graph 栈、重启后端 :8000（/today 真数据已活体）。
+
+### M8-P1 ✅ · 产品雏形第一波：空间闭环 + Today 驾驶舱 + 种子数据 + 微辅导浮窗
+
+**背景**：用户要求按 `docs/21-AI导师学习系统产品化开发文档.md`（与 codex 共创的产品化文档）落地产品雏形，并指定「学习空间详情优先」、数据允许占位但结构要真实（§13：20 画像 + 100+ 资源）。本轮对应 docs/21 §16 优先级清单与阶段 1/3/4。
+
+**关键实现**：
+- **闭环命门**（自主补充，已向用户说明）：`learning/spaces.py` 新增 `SpaceStore`（PG 优先降级内存，仿 mistakes 范式）——`create_space`/`get_space_detail`（聚合 goal+path_items+resources）/`save_session_outcome`；`chat.py` 收集 assemble 资源全文 + path_plan 路径，done 前 best-effort 沉淀（无 space_id 且有实质产出 → 自动按目标建空间），emit `space_saved`。此前 chat 产出是一次性的，learning_goals/learning_paths/path_items/resources 四表建好从未写入——这是 /plan、/resources、/spaces 空壳的根因。
+- **迁移列**：`init_db.py` 给 learning_goals+progress、resources+goal_id/concept、learning_paths+goal_id/tenant_id/summary/strategy、path_items+task_ref/resource_type/concept/objective/rationale/difficulty。
+- **新端点**：POST /api/spaces、GET /api/spaces/{id}/detail（ACL 403/404）、GET /api/profile（Redis 画像优先→PG learner_profiles→空，聚合错题 top 概念/空间/资源统计，≥6 维对齐 docs/21 §10）、POST /api/tutor/ask（SafetyGateway 进出双闸 + 画像上下文注入 + LLM 异常降级离线占位）。
+- **种子数据**：`scripts/seed_demo.sh` → `scripts/jobs/data/seed_demo.py` + `seed_content.py`（22 真实概念×6 类生成器=114 资源；21 画像；10 空间；10 路径 36 步带 mastery_status；30 错题；course='seed-demo' 幂等先删后插；admin upsert 真实 password_hash）。
+- **前端**：`/today`（问候+主目标进度+下一步建议带推荐理由+画像薄弱点+错题提醒+快速入口+最近资源）、`/spaces/[id]`（StatCard×3+进度条+路径时间线（done/in_progress/not_started 三态+「为什么是这一步」）+资源类型筛选可展开）、/spaces 列表+创建表单+卡片链接、`nav.ts` 重排（today 首位、chat→「AI 导师」、SideNav +Sunrise 图标）、`components/chat/FloatingTutor.tsx` 全局浮窗（页面上下文 hint，/chat 不挂）挂 (app)/layout。
+
+**验证结果**：
+- `bash scripts/test_unit.sh`：**501 passed, 2 warnings**（484→501，+17：spaces_flow 6 + tutor_profile 5 + 既有）。顺手修 `test_video_jobs.py` 限流污染（login 测试无 reset_login_limiter_for_tests，新增测试改变时序后顶进 5 次/300s 窗口 → 429；按 security 测试既有模式补 reset）。
+- `npx tsc --noEmit` 零错误；`check_frontend_ia.sh` ok；`bash -n` 新脚本通过。
+- 活体：seed 输出 21/10/10(36)/114/30；login→GET /spaces（3 空间）→GET /spaces/11/detail（10 步 60 资源 progress 0.35 当前步=过拟合与正则化）→GET /profile（source=redis，错题 30/20，资产统计齐）→POST /tutor/ask（200，3.5s 降级占位）；浏览器 /today、/spaces、/spaces/11、浮窗提问全通（截图 ws-today/ws-space-detail/ws-spaces-list/ws-floating-tutor.png）。
+- 环境插曲：Docker Desktop 中途掉线（PG/Redis 等容器全停）→ 已拉起 Docker Desktop + start_graph + init_all + 重灌 seed。
+
+**诚实限制**：tutor 真 LLM 答案未活体（中转站 key 403 GROUP_DISABLED，同 M7-RunFix 外部因素；降级矩阵已兜底，恢复即自动切真答案）；chat 沉淀的真实 LLM 全链路活体待中转站恢复后验（机制由 6 个单测锁定）；`check_frontend_glass` 失败系 globals.css 668 行（codex 活跃区，本轮零接触）；`next build` 未跑（codex dev 占用 .next）；/profile 画像页、/plan 接真数据、/chat 导师化（docs/21 阶段 2/5）未做属下一轮；Redis 实时画像与 PG seed 画像可能不一致（Redis 优先是设计行为）。
+
+### M8-WS-Fix ✅ · 会话持久化修复：Next rewrites 同源代理（刷新不再掉登录）
+
+**背景**：用户报告「每次刷新都回到登录页」。根因：dev 绑 `127.0.0.1:3000` 而脚本注入的 API base 是 `http://localhost:8000/api`，页面源与 API 源 host 不同 = **跨站**；后端会话 cookie `SameSite=Lax` 在跨站 fetch 一律不发送 → 刷新后 `/auth/me` 永远 401 → 踢回登录页。登录后页内正常是开发模式 Bearer 兜底掩盖了 cookie 链路断裂；同根因还导致 csrf cookie 在浏览器侧不可读（CSRF 双提交实际失效，全靠 Authorization 豁免规则放行）。
+
+**修复（业界标准同源化）**：
+- `frontend/next.config.mjs` 加 `rewrites`：`/api/:path*` → `BACKEND_ORIGIN`（默认 `http://127.0.0.1:8000`）`/api/:path*`。浏览器只面对一个源，session/csrf cookie 都是第一方。
+- 10 处 `API_BASE` 默认值从绝对地址改相对 `/api`（6 页面 + MistakeForm + KnowledgeUpload/VideoJobCard + lib/auth + lib/useChat），`NEXT_PUBLIC_API_BASE` 仍可覆盖直连。
+- `scripts/start_frontend.sh` / `build_frontend.sh`：API base 默认 `/api`，新增第 3/2 位参数与 `BACKEND_ORIGIN` 环境变量透传进 cmd.exe set 串。
+- `tests/unit/test_core.py` 契约断言同步更新（默认 `/api` + BACKEND_ORIGIN 注入）。
+- 后端零改动（CORS/SameSite=Lax 保持，脚本直连场景照旧）。
+
+**验证结果**：
+- 契约测试 `test_frontend_scripts_support_port_and_api_base_overrides` 通过；`bash -n` 通过；check_frontend_glass/ia 双 ok。
+- 重启 dev 活体（经 :3000 代理）：`/api/health` 200；**login → Set-Cookie 落同源 → 仅凭 cookie（无 Bearer）`/auth/me` 200** = 刷新恢复链路修复；SSE `/api/chat` 经代理逐帧流出不缓冲（session/agent_step/resource_card 帧）；纯 cookie 会话 + `X-CSRF-Token` 双提交写请求放行 = CSRF 机制在浏览器侧首次真正可用。
+- 同源请求无条件携带第一方 cookie 是 HTTP 协议行为，curl 与浏览器一致；用户侧需硬刷新一次加载新 bundle 后登录即可。
+
+**诚实限制**：本机 `localhost:3000` 被另一 IPv6 服务占用（裸 404），访问入口请统一用 `127.0.0.1:3000`（同源代理下 cookie 不再受访问 host 影响，但 dev 只绑了 127.0.0.1）；production `next start` 的 rewrites 同样生效，但生产部署若走独立反代需在反代层配置同源转发。
+
+### M8-WS ✅ · 内部工作台视觉重设计：「暖白纸张 × 海军蓝」（Shell + 6 页）
+
+**背景**：用户反馈内部页面「完全没有设计，没有使用欲望」；且 codex 并行开发的首页/登录页已转向「深海军蓝 + 暖白纸张 #f7f5f0 + 衬线标题」新品牌，旧「深紫黑 + 白玻璃」工作台与之割裂。用户拍板：工作台基调改「暖白纸张 × 海军蓝」；本轮做 App Shell + 6 功能页，/chat 下一轮专做（本轮仅最小不割裂调整）。
+
+**关键实现**：
+- 新增 `frontend/app/(app)/workspace.css`（91 行）：`.ws-root` 作用域变量（--ws-navy/--ws-ink #051A24/--ws-paper #f7f5f0/--ws-line/--ws-accent cyan-700）+ ws-serif/ws-card/ws-eyebrow/ws-skeleton 工具类；**三个暗色泄漏修复**（`.ws-root ::selection`、`.ws-root .markdown` 整组翻亮——/chat 白卡 markdown 可读性的命门、ws-root 自身盖 body 暗渐变）。**globals.css 零接触**（codex 活跃区），覆盖全靠 .ws-root 后代选择器特异性。
+- 新增 `frontend/components/workspace/`（9 文件，components 根目录第 8 条目 **已封顶**）：SideNav（墨蓝侧边栏：lucide 图标导航 + active 青色竖条 + 用户卡；<lg 变顶栏+横滚 pill）、PageHeader（eyebrow+衬线大标题）、WsCard/StatCard/EmptyState/Tag（6 语义 tone）/WsButton（primary/outline/ghost）、resourceMeta（6+1 资源类型→图标/中文名/配色）、index barrel。展示组件无 "use client"（plan 页保持 RSC）。
+- 重做 `(app)/layout.tsx`：去整块 GlassPanel → ws-root 暖白底 + SideNav + max-w-6xl 内容区。
+- 六页重做（统一三态：ws-skeleton 加载 / EmptyState 引导 / 数据卡片；**全部 API 调用与状态逻辑保留**）：plan TODO→「路径如何生成」3 步引导页+双 CTA；spaces 卡片网格+状态 Tag；resources 类型筛选 chips+图标网格卡；knowledge 上传引导条+行式文档卡（格式/visibility Tag）；growth StatCard×3+导出按钮上移 PageHeader+协作轨迹竖向时间线（payload 收进 details 折叠）；mistakes 重构主从布局（左可选列表+右 sticky 详情），拆 `MistakeDetail.tsx`(165) + `MistakeForm.tsx`(74)，page 259 行。
+- /chat 最小调整：page 加 PageHeader；`Workspace.tsx` embedded 模式不再渲染与 shell 重复的品牌/用户/退出 header（保留「新会话」），非 embedded 路径原样。
+- 依赖：+`lucide-react@^1.17.0`（React 19 peer 兼容；npm install 隔离执行避开 codex 的 package.json 改动）。
+
+**验证结果**：
+- `bash scripts/check_frontend_glass.sh`：ok（全文件 ≤300 行、components 根 8/8、globals token、glass 5 组件保留）。
+- `bash scripts/check_frontend_ia.sh`：ok（4 个 API 字符串 + workspaceNavItems）。
+- `npx tsc --noEmit`：零错误；dev :3000 下 7 个工作台路由 + `/` + `/design` 全部 200 无编译错误标记。
+- Playwright 视觉活体（codex 释放浏览器后补做）：spaces/plan/resources/knowledge/growth/mistakes/chat 七页桌面截图全过；**错题飞轮全链路活体**（创建→选中→归因→补救计划→针对性资源）端到端跑通，主从布局/语义色块/资源卡正常；growth 真实数据（StatCard、轨迹时间线、payload 折叠）正常；375px 移动端顶栏+横滚导航正常；SPA 侧边栏导航与激活态正常。截图存项目根 `ws-check-*.png`。
+- **未跑 `next build`**：codex 正用 dev server 工作（Playwright 浏览器一度被其占用），dev/build 共写 .next 会破坏其会话；tsc+热编译已覆盖类型与模块解析面，build 留待 codex 收尾后补跑。
+
+**诚实限制**：/chat 内部（AgentTimeline/ResourceCard/DebatePanel 等 slate 亮色组件、prompt-kit 接入、上传/视频工具区样式、「开始」按钮仍是旧 indigo 紫）属下一轮；spaces/resources 数据态卡片仅靠类型与空态截图保证（后端当前无 spaces/resources 数据）；跨页硬刷新后需重登录是 127.0.0.1↔localhost cookie 跨站环境因素，非本轮引入。**components 根目录已满 8/8，后续新组件必须放进现有子目录**。
+
 ### M7-RunFix ✅ · 运行修复：LLM 凭证失效降级一致性 + Windows 前端脚本
 
 **背景**：用户转入"亲手测试 + 前端优化"阶段，本轮把全栈跑起来供用户验收，过程中活体暴露两个运行级 bug 并修复。
 
 **关键修复**：
 - **生成 skill 降级判定缺口**：旧实现只对异常消息含 `OFFLINE_TAG`（no_api_key）走离线占位；中转站 403（`GROUP_DISABLED`，key 分组被停）抛 `HTTPStatusError` → `ok=False` → critic 全拒 → 4 轮重规划 → **0 资源 0 路径**收场（违反降级铁律）。修复：6 个 `*_gen` skill 的 try 块只包 LLM 调用，任何异常统一降级离线占位（`offline.log_llm_fallback` 记日志 + `degraded_from` 标注异常类型），"无 key"与"key 失效/网络故障"行为一致。`path_plan`/`quality_check` 原本已是全异常降级，未动。
-- **前端脚本 cmd.exe /C 被吞**：Git Bash 把单斜杠 `/C` 做 MSYS 路径转换（→ `C:\`），cmd 进入交互模式、npm 从未执行；叠加旧残留进程与新进程双监听 :3000，HTML 与静态资源由不同进程响应 → 全部 404、页面裸 HTML 无样式。修复 `start_frontend.sh`/`build_frontend.sh` 改 `//C` 并由 `test_core.py` 契约锁定。
+- **前端脚本 cmd.exe 参数空跑**：当前开发面是 WSL bash，`cmd.exe //C` 会进入交互式 cmd、npm 从未执行；历史 Git Bash 场景与当前环境相反。修复 `start_frontend.sh`/`build_frontend.sh` 改为 `cmd.exe /C ...`，并由 `test_core.py` 契约锁定，避免脚本返回 0 但未真实构建。
 
 **验证结果**：
 - 红灯：新增 `tests/unit/flow/skills/test_llm_unavailable_fallback.py` 7 项（6 skill×403 + ConnectError）初跑全红。
 - 绿灯：`bash scripts/test_unit.sh`：**484 passed, 2 warnings**（477→484；`test_reading_gen_handles_llm_error` 按新契约更新为降级断言）。
+- 复验：`bash scripts/build_frontend.sh` 真实执行 `next build` 通过，13 路由；`bash scripts/test_unit.sh tests/unit/test_core.py::test_frontend_scripts_support_port_and_api_base_overrides -q` 通过；递归 `bash -n scripts/*.sh` 通过。
 - 活体（中转站 13:31 恢复后）：`/chat` 真实 LLM 全链路「线性回归入门」一轮过验收：**6 资源 + 6 步个性化学习路径**（带 depends_on/难度/objective/个性化 strategy），~75s 收口 `event: done`；前端 done 后正常解锁输入框，多轮可继续。`check_api_security.sh 8000` 7 项通过。
 - 服务态：8 容器全在（PG/Redis/Qdrant/Neo4j/Kafka/MinIO/Prometheus/Grafana）、后端 :8000、前端 :3000（dev）。
 

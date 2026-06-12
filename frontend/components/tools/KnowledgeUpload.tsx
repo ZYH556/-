@@ -5,7 +5,7 @@ import type { DragEvent, ReactNode } from "react";
 import { apiForm, getErrorMessage } from "@/lib/apiClient";
 import type { IngestResult } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
 type Status = "idle" | "uploading" | "done" | "error";
 

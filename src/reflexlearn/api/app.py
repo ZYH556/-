@@ -4,7 +4,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-from reflexlearn.api.routes import auth, health, chat, knowledge, mistakes, traces, video, workspace
+from reflexlearn.api.routes import (
+    auth,
+    chat,
+    health,
+    knowledge,
+    mistakes,
+    profile,
+    today,
+    traces,
+    tutor,
+    video,
+    workspace,
+)
 from reflexlearn.common.auth import validate_auth_runtime
 from reflexlearn.common.config import get_settings
 from reflexlearn.common.db import lifespan_db
@@ -55,4 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(mistakes.router, prefix="/api", tags=["mistakes"])
     app.include_router(traces.router, prefix="/api", tags=["collaboration"])
     app.include_router(video.router, prefix="/api", tags=["video"])
+    app.include_router(profile.router, prefix="/api", tags=["profile"])
+    app.include_router(today.router, prefix="/api", tags=["today"])
+    app.include_router(tutor.router, prefix="/api", tags=["tutor"])
     return app

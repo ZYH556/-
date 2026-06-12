@@ -1,6 +1,6 @@
 import type { AuthToken, CurrentUser } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
 function isCurrentUser(value: unknown): value is CurrentUser {
   if (!value || typeof value !== "object") return false;
@@ -46,6 +46,36 @@ export async function login(username: string, password: string): Promise<AuthTok
   }
   const body: unknown = await resp.json();
   if (!isLoginResponse(body)) throw new Error("登录响应格式不正确");
+  return toAuthToken(body);
+}
+
+export async function register(account: string, password: string): Promise<AuthToken> {
+  const resp = await fetch(`${API_BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ account, password }),
+  });
+  if (!resp.ok) {
+    if (resp.status === 409) throw new Error("该手机号或邮箱已注册");
+    if (resp.status === 400) throw new Error("请检查账号格式和密码长度");
+    throw new Error(`注册失败：HTTP ${resp.status}`);
+  }
+  const body: unknown = await resp.json();
+  if (!isLoginResponse(body)) throw new Error("注册响应格式不正确");
+  return toAuthToken(body);
+}
+
+export async function socialLogin(provider: "google" | "github"): Promise<AuthToken> {
+  const resp = await fetch(`${API_BASE}/auth/social`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ provider }),
+  });
+  if (!resp.ok) throw new Error(`第三方登录失败：HTTP ${resp.status}`);
+  const body: unknown = await resp.json();
+  if (!isLoginResponse(body)) throw new Error("第三方登录响应格式不正确");
   return toAuthToken(body);
 }
 

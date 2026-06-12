@@ -1,0 +1,156 @@
+/* 工作台主题「暖白纸张 × 海军蓝」——与登录页品牌墙 / 首页白色内容面板同源。
+   约束：变量全部挂 .ws-root（不污染 (public) 与 /design 的暗色玻璃体系）；
+   纯 CSS 不用 @apply（独立文件无 @reference 上下文）；覆盖 globals.css 的
+   暗色样式一律靠 .ws-root 后代选择器特异性取胜，绝不修改 globals.css。 */
+
+.ws-root {
+  --ws-navy: hsl(201 100% 13%); /* 主行动色，与登录按钮一致 */
+  --ws-ink: #051a24; /* 标题/正文墨蓝，与 LandingContent 一致 */
+  --ws-paper: #f7f5f0; /* 页面底，与登录页右栏一致 */
+  --ws-card: #ffffff;
+  --ws-line: #e7e3da; /* 卡片暖发丝描边 */
+  --ws-line-strong: #d8d2c4; /* 分隔线 / hover 描边 */
+  --ws-accent: #0e7490; /* cyan-700：链接、eyebrow */
+  background: var(--ws-paper);
+  color: var(--ws-ink);
+  font-family: var(--font-body);
+}
+
+.ws-serif {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.ws-card {
+  background: var(--ws-card);
+  border: 1px solid var(--ws-line);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgb(5 26 36 / 0.04);
+}
+
+.ws-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ws-accent);
+}
+
+@keyframes ws-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* 加载骨架：暖灰 shimmer。globals 的 prefers-reduced-motion 已把全局动画压到 1ms，自动豁免。 */
+.ws-skeleton {
+  border-radius: 12px;
+  background: linear-gradient(90deg, #ece9e1 25%, #f3f1ea 50%, #ece9e1 75%);
+  background-size: 200% 100%;
+  animation: ws-shimmer 1.6s linear infinite;
+}
+
+/* globals 的 ::selection 是「白字」，在暖白底会不可读 */
+.ws-root ::selection {
+  background: rgb(125 211 252 / 0.4);
+  color: #051a24;
+}
+
+/* globals 的 .markdown 是暗色调（浅灰字/白标题），在暖白工作台内整组翻亮。
+   /chat 的 ResourceCard(bg-white) 渲染 markdown 依赖这组覆盖。 */
+.ws-root .markdown {
+  color: #334155;
+}
+.ws-root .markdown h1,
+.ws-root .markdown h2,
+.ws-root .markdown h3,
+.ws-root .markdown strong {
+  color: var(--ws-ink);
+}
+.ws-root .markdown a {
+  color: var(--ws-accent);
+}
+.ws-root .markdown blockquote {
+  border-color: var(--ws-line-strong);
+  color: #475569;
+}
+.ws-root .markdown :not(pre) > code {
+  background: rgb(5 26 36 / 0.06);
+  color: #9f1239;
+}
+.ws-root .markdown th,
+.ws-root .markdown td {
+  border-color: var(--ws-line-strong);
+}
+.ws-root .markdown th {
+  background: rgb(5 26 36 / 0.04);
+}
+
+/* —— 印刷档案（/profile）：入场、印章、刻度 —— */
+
+/* 卡片入场：一次性编排，delay 由使用处 inline style 给 */
+@keyframes ws-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ws-rise {
+  animation: ws-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 印章式标签：双线框 + 微倾斜，hover 回正（数据来源的「盖章」隐喻） */
+.ws-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  outline: 1px solid currentColor;
+  outline-offset: 2.5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  transform: rotate(-2.5deg);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ws-stamp:hover {
+  transform: rotate(0deg);
+}
+
+/* 掌握度刻度轨道：填充之上用卡片底色细线每 10% 切一刀，印刷尺质感 */
+.ws-ticks {
+  position: relative;
+  background: rgb(5 26 36 / 0.06);
+}
+.ws-ticks::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to right,
+    transparent 0,
+    transparent calc(10% - 1px),
+    var(--ws-card) calc(10% - 1px),
+    var(--ws-card) 10%
+  );
+  pointer-events: none;
+}
+
+/* 对账单引导点：条目名称与数值之间的点线（印刷目录 leader dots） */
+.ws-leader {
+  flex: 1 1 auto;
+  min-width: 24px;
+  border-bottom: 2px dotted var(--ws-line-strong);
+  transform: translateY(-4px);
+}

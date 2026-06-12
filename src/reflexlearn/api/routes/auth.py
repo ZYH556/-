@@ -26,6 +26,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    account: str
+    password: str
+
+
+class SocialLoginRequest(BaseModel):
+    provider: str
+
+
 class LoginResponse(BaseModel):
     user: CurrentUser
     token_type: str = "bearer"
@@ -101,6 +110,90 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Log
         expires_in=settings.auth_token_ttl_seconds,
         access_token=expose_token,
     )
+
+
+@router.post("/auth/register")
+async def register(body: RegisterRequest, request: Request, response: Response) -> LoginResponse:
+    account_id = body.account.strip()
+    password = body.password
+    if len(account_id) < 5 or ("@" not in account_id and not account_id.replace("+", "").isdigit()):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_account")
+    if len(password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="weak_password")
+
+    settings = get_settings()
+    try:
+        validate_auth_runtime(settings)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="auth_misconfigured",
+        ) from exc
+
+    pool = await safe_pg_pool()
+    store = AccountStore(pg_pool=pool, settings=settings)
+    if await store.get_account(account_id) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="account_exists")
+
+    created = await store.create_account(username=account_id, password=password, role="student")
+    user = CurrentUser(user_id=created.user_id, tenant_id=created.tenant_id, role=created.role)
+    token = issue_token(user, settings)
+    set_session_cookie(response, token, settings)
+    set_csrf_cookie(response, generate_csrf_token(), settings)
+    await AuditLog(pg_pool=pool).record(
+        AuditEvent(
+            event_type="auth.register",
+            user_id=user.user_id,
+            tenant_id=user.tenant_id,
+            ip=_client_ip(request),
+            status="ok",
+        )
+    )
+    expose_token = None if settings.app_env.lower() == "production" else token
+    return LoginResponse(user=user, expires_in=settings.auth_token_ttl_seconds, access_token=expose_token)
+
+
+@router.post("/auth/social")
+async def social_login(body: SocialLoginRequest, request: Request, response: Response) -> LoginResponse:
+    provider = body.provider.strip().lower()
+    if provider not in {"google", "github"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_provider")
+
+    settings = get_settings()
+    try:
+        validate_auth_runtime(settings)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="auth_misconfigured",
+        ) from exc
+
+    user_id = f"{provider}:local-demo"
+    pool = await safe_pg_pool()
+    store = AccountStore(pg_pool=pool, settings=settings)
+    account = await store.get_account(user_id)
+    if account is None:
+        account = await store.create_account(
+            username=user_id,
+            password=f"{provider}-oauth-local-demo",
+            role="student",
+        )
+
+    user = CurrentUser(user_id=account.user_id, tenant_id=account.tenant_id, role=account.role)
+    token = issue_token(user, settings)
+    set_session_cookie(response, token, settings)
+    set_csrf_cookie(response, generate_csrf_token(), settings)
+    await AuditLog(pg_pool=pool).record(
+        AuditEvent(
+            event_type=f"auth.social.{provider}",
+            user_id=user.user_id,
+            tenant_id=user.tenant_id,
+            ip=_client_ip(request),
+            status="ok",
+        )
+    )
+    expose_token = None if settings.app_env.lower() == "production" else token
+    return LoginResponse(user=user, expires_in=settings.auth_token_ttl_seconds, access_token=expose_token)
 
 
 @router.post("/auth/logout")

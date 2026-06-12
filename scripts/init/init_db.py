@@ -227,6 +227,30 @@ CREATE TABLE IF NOT EXISTS upload_objects (
 
 CREATE INDEX IF NOT EXISTS idx_upload_objects_owner
     ON upload_objects (tenant_id, user_id, created_at DESC);
+
+ALTER TABLE learning_goals
+    ADD COLUMN IF NOT EXISTS progress FLOAT NOT NULL DEFAULT 0;
+
+ALTER TABLE resources
+    ADD COLUMN IF NOT EXISTS goal_id INT,
+    ADD COLUMN IF NOT EXISTS concept VARCHAR NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_resources_goal
+    ON resources (goal_id, created_at DESC);
+
+ALTER TABLE learning_paths
+    ADD COLUMN IF NOT EXISTS goal_id INT,
+    ADD COLUMN IF NOT EXISTS tenant_id VARCHAR NOT NULL DEFAULT 'default',
+    ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS strategy VARCHAR NOT NULL DEFAULT '';
+
+ALTER TABLE path_items
+    ADD COLUMN IF NOT EXISTS task_ref VARCHAR NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS resource_type VARCHAR NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS concept VARCHAR NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS objective TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS rationale TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS difficulty FLOAT NOT NULL DEFAULT 0;
 """
 
 

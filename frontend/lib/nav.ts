@@ -6,13 +6,15 @@ export interface NavItem {
 }
 
 export const workspaceNavItems: NavItem[] = [
+  { id: "today", label: "今日学习", href: "/today", description: "今天该学什么、从哪里开始" },
+  { id: "profile", label: "学习画像", href: "/profile", description: "查看系统如何理解你的目标与薄弱点" },
+  { id: "chat", label: "AI 导师", href: "/chat", description: "1 对 1 对话：诊断、规划与资源生成" },
   { id: "spaces", label: "学习空间", href: "/spaces", description: "按目标组织个人学习资产" },
-  { id: "chat", label: "对话工作区", href: "/chat", description: "发起多智能体协作生成资源" },
   { id: "plan", label: "学习路径", href: "/plan", description: "查看个性化路径与进度" },
   { id: "resources", label: "资源库", href: "/resources", description: "管理已生成学习资源" },
   { id: "knowledge", label: "个人知识库", href: "/knowledge", description: "上传和管理私有资料" },
   { id: "mistakes", label: "错题本", href: "/mistakes", description: "沉淀错因并触发复习" },
-  { id: "growth", label: "成长档案", href: "/growth", description: "查看画像和自进化轨迹" },
+  { id: "growth", label: "成长档案", href: "/growth", description: "能力随时间的变化与自进化轨迹" },
 ];
 
 export const publicTracks: NavItem[] = [

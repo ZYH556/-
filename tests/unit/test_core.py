@@ -93,6 +93,7 @@ def test_run_debug_scripts_have_logging_contract():
         "start_api.sh",
         "start_frontend.sh",
         "build_frontend.sh",
+        "clean_frontend.sh",
         "stop_frontend.sh",
         "stop_all.sh",
         "test_unit.sh",
@@ -168,16 +169,25 @@ def test_frontend_scripts_support_port_and_api_base_overrides():
     stop_text = (root / "scripts" / "stop_frontend.sh").read_text(encoding="utf-8")
 
     assert 'FRONTEND_PORT="${1:-${FRONTEND_PORT:-3000}}"' in start_text
-    assert 'FRONTEND_API_BASE="${2:-${NEXT_PUBLIC_API_BASE:-http://localhost:8000/api}}"' in start_text
+    # 默认相对 /api：浏览器同源请求经 next.config rewrites 代理到 BACKEND_ORIGIN，
+    # HttpOnly 会话 cookie 才能在刷新后随请求发送（绝对地址跨站会丢 cookie）。
+    assert 'FRONTEND_API_BASE="${2:-${NEXT_PUBLIC_API_BASE:-/api}}"' in start_text
+    assert 'BACKEND_ORIGIN="${3:-${BACKEND_ORIGIN:-http://127.0.0.1:8000}}"' in start_text
     assert 'NEXT_PUBLIC_API_BASE="$FRONTEND_API_BASE"' in start_text
     assert '--port "$FRONTEND_PORT"' in start_text
-    # Git Bash 会把单斜杠 /C 做 MSYS 路径转换（→ C:\）导致 cmd 进入交互模式，
-    # 必须用 //C（cmd 收到的仍是 /C）。
-    assert "cmd.exe //C" in start_text
-    assert "cmd.exe /C \"" not in start_text
-    assert "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& npm run dev" in start_text
-    assert 'FRONTEND_API_BASE="${1:-${NEXT_PUBLIC_API_BASE:-http://localhost:8000/api}}"' in build_text
-    assert "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& npm run build" in build_text
+    # 当前开发环境是 WSL bash；cmd.exe //C 会打开交互式 cmd 并空跑，必须使用 /C。
+    assert "cmd.exe /C" in start_text
+    assert "cmd.exe //C" not in start_text
+    assert (
+        "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& set BACKEND_ORIGIN=$BACKEND_ORIGIN&& npm run dev"
+        in start_text
+    )
+    assert 'FRONTEND_API_BASE="${1:-${NEXT_PUBLIC_API_BASE:-/api}}"' in build_text
+    assert 'BACKEND_ORIGIN="${2:-${BACKEND_ORIGIN:-http://127.0.0.1:8000}}"' in build_text
+    assert (
+        "set NEXT_PUBLIC_API_BASE=$FRONTEND_API_BASE&& set BACKEND_ORIGIN=$BACKEND_ORIGIN&& npm run build"
+        in build_text
+    )
     assert 'FRONTEND_PORT="${1:-${FRONTEND_PORT:-3000}}"' in stop_text
 
 

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { CurrentUser } from "@/lib/types";
 import { useChat } from "@/lib/useChat";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -15,9 +16,23 @@ interface WorkspaceProps {
   user: CurrentUser;
   onLogout: () => void;
   embedded?: boolean;
+  emptyState?: ReactNode;
+  showTools?: boolean;
+  actionBar?: (args: {
+    disabled: boolean;
+    onSelect: (message: string, displayMessage?: string) => void;
+  }) => ReactNode;
 }
 
-export function Workspace({ token, user, onLogout, embedded = false }: WorkspaceProps) {
+export function Workspace({
+  token,
+  user,
+  onLogout,
+  embedded = false,
+  emptyState,
+  actionBar,
+  showTools = true,
+}: WorkspaceProps) {
   const { turns, send, stop, resetSession, streaming } = useChat(token);
 
   return (
@@ -28,49 +43,65 @@ export function Workspace({ token, user, onLogout, embedded = false }: Workspace
           : "mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8"
       }
     >
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">ReflexLearn</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            多智能体个性化学习系统 · 多轮对话，记忆贯通
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="hidden text-right text-xs text-slate-500 sm:block">
-            <div className="font-medium text-slate-700">{user.user_id}</div>
-            <div>
-              {user.tenant_id} · {user.role}
-            </div>
-          </div>
-          {turns.length > 0 && (
+      {embedded ? (
+        turns.length > 0 && (
+          <div className="flex justify-end">
             <button
               onClick={resetSession}
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-indigo-400 hover:text-indigo-600"
             >
               新会话
             </button>
-          )}
-          <button
-            onClick={onLogout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-rose-400 hover:text-rose-600"
-          >
-            退出
-          </button>
-        </div>
-      </header>
+          </div>
+        )
+      ) : (
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">ReflexLearn</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              多智能体个性化学习系统 · 多轮对话，记忆贯通
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="hidden text-right text-xs text-slate-500 sm:block">
+              <div className="font-medium text-slate-700">{user.user_id}</div>
+              <div>
+                {user.tenant_id} · {user.role}
+              </div>
+            </div>
+            {turns.length > 0 && (
+              <button
+                onClick={resetSession}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-indigo-400 hover:text-indigo-600"
+              >
+                新会话
+              </button>
+            )}
+            <button
+              onClick={onLogout}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-rose-400 hover:text-rose-600"
+            >
+              退出
+            </button>
+          </div>
+        </header>
+      )}
 
-      <details className="rounded-xl border border-slate-200 bg-white">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700">
-          📚 知识库上传 & 🎬 视频生成（M4 数据工程）
-        </summary>
-        <div className="space-y-4 border-t border-slate-100 p-4">
-          <KnowledgeUpload token={token} />
-          <VideoJobCard token={token} />
-        </div>
-      </details>
+      {showTools ? (
+        <details className="rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700">
+            知识库上传 & 视频生成
+          </summary>
+          <div className="space-y-4 border-t border-slate-100 p-4">
+            <KnowledgeUpload token={token} />
+            <VideoJobCard token={token} />
+          </div>
+        </details>
+      ) : null}
 
       <div className="space-y-2">
         <ChatInput disabled={streaming} onSend={send} />
+        {actionBar ? actionBar({ disabled: streaming, onSelect: send }) : null}
         {streaming && (
           <button
             onClick={stop}
@@ -82,10 +113,12 @@ export function Workspace({ token, user, onLogout, embedded = false }: Workspace
       </div>
 
       {turns.length === 0 && (
-        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400">
-          输入一个学习目标开始，例如「线性回归」或「机器学习从入门到精通的系统学习路径」。
-          支持多轮追问，Agent 会记住上下文。
-        </div>
+        emptyState ?? (
+          <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-400">
+            输入一个学习目标开始，例如「线性回归」或「机器学习从入门到精通的系统学习路径」。
+            支持多轮追问，Agent 会记住上下文。
+          </div>
+        )
       )}
 
       <div className="space-y-8">

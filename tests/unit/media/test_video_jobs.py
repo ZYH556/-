@@ -89,7 +89,10 @@ def auth_headers(client: TestClient) -> dict[str, str]:
 @pytest.fixture(autouse=True)
 def _reset_and_no_redis(monkeypatch):
     """重置作业单例 + 禁真实 get_redis（默认 store 降级内存，绝不真连 127.0.0.1:16379）。"""
+    from reflexlearn.security.rate_limit import reset_login_limiter_for_tests
+
     vj._store = None
+    reset_login_limiter_for_tests()
 
     async def _boom_redis():
         raise RuntimeError("redis disabled in unit tests")

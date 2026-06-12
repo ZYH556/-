@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiJson, authFetch, getErrorMessage } from "@/lib/apiClient";
 import type { VideoJob } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
 type Status = "idle" | "submitting" | "polling" | "settled" | "error";
 

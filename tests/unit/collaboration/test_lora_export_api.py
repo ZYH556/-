@@ -16,6 +16,13 @@ def _headers(user_id: str, tenant_id: str = "default") -> dict[str, str]:
 
 def test_lora_export_api_exports_only_current_user_traces(tmp_path, monkeypatch):
     monkeypatch.setattr(route, "lora_output_dir", lambda: tmp_path, raising=False)
+
+    # hermetic：环境里 PG 可达时 safe_pg_pool 会真连，list_for_user 转读 PG
+    # 而测试轨迹写在内存 store——强制 None 走内存路径，结果不随 Docker 状态漂移。
+    async def no_pg():
+        return None
+
+    monkeypatch.setattr(route, "safe_pg_pool", no_pg)
     route.reset_trace_store_for_tests()
     route.get_trace_store().record_memory(
         user_id="owner",

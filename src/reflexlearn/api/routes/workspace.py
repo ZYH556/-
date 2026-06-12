@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from reflexlearn.api.acl import assert_object_access
 from reflexlearn.api.deps import get_current_user
 from reflexlearn.api.service_deps import safe_pg_pool
 from reflexlearn.common.auth import CurrentUser
-from reflexlearn.learning.assets import LearningAssetStore
+from reflexlearn.learning.assets import LearningAssetStore, LearningResource
+from reflexlearn.learning.resource_discovery import (
+    DiscoverResourceRequest,
+    build_resource_discovery,
+)
+from reflexlearn.learning.spaces import get_space_store
 
 router = APIRouter()
 _store = LearningAssetStore()
@@ -25,6 +31,38 @@ def set_asset_store_for_tests(store: LearningAssetStore) -> None:
 def reset_asset_store_for_tests() -> None:
     global _store
     _store = LearningAssetStore()
+
+
+class CreateSpaceRequest(BaseModel):
+    title: str
+    course: str = ""
+
+
+@router.post("/spaces")
+async def create_space(req: CreateSpaceRequest, user: CurrentUser = Depends(get_current_user)):
+    pg_pool = await safe_pg_pool()
+    return await get_space_store().create_space(
+        user_id=user.user_id,
+        tenant_id=user.tenant_id,
+        title=req.title,
+        course=req.course,
+        pg_pool=pg_pool,
+    )
+
+
+@router.get("/spaces/{space_id}/detail")
+async def get_space_detail(space_id: str, user: CurrentUser = Depends(get_current_user)):
+    pg_pool = await safe_pg_pool()
+    detail = await get_space_store().get_space_detail(space_id, pg_pool=pg_pool)
+    if detail is None:
+        return JSONResponse(status_code=404, content={"error": "space_not_found"})
+    assert_object_access(
+        user=user,
+        owner_user_id=detail.user_id,
+        tenant_id=detail.tenant_id,
+        visibility="private",
+    )
+    return detail
 
 
 @router.get("/spaces")
@@ -60,6 +98,68 @@ async def list_resources(user: CurrentUser = Depends(get_current_user)):
         tenant_id=user.tenant_id,
         pg_pool=pg_pool,
     )
+
+
+@router.post("/resources/discover")
+async def discover_resources(
+    req: DiscoverResourceRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    return build_resource_discovery(req)
+
+
+class SaveResourceRequest(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=160)
+    type: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=1, max_length=200)
+    provider: str = Field(default="", max_length=80)
+    source_label: str = Field(default="", max_length=40)
+    href: str = Field(default="", max_length=500)
+    embed_url: str = Field(default="", max_length=500)
+    usage_mode: str = Field(default="metadata_only", max_length=40)
+    source_policy: str = Field(default="embed_or_redirect_only", max_length=40)
+    estimated_minutes: int = Field(default=10, ge=1, le=600)
+    reason: str = Field(default="", max_length=600)
+    content_preview: str = Field(default="", max_length=600)
+    concept: str = Field(default="", max_length=80)
+
+
+@router.post("/resources/save")
+async def save_resource(
+    req: SaveResourceRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    pg_pool = await safe_pg_pool()
+    item = LearningResource(
+        resource_id=req.candidate_id,
+        user_id=user.user_id,
+        tenant_id=user.tenant_id,
+        type=req.type,
+        title=req.title,
+        content_preview=req.content_preview,
+        visibility="private",
+        provider=req.provider,
+        source_label=req.source_label,
+        href=req.href,
+        embed_url=req.embed_url,
+        usage_mode=req.usage_mode,
+        source_policy=req.source_policy,
+        estimated_minutes=req.estimated_minutes,
+        reason=req.reason,
+    )
+    resource_id, duplicate = await get_asset_store().save_resource(
+        item,
+        candidate_id=req.candidate_id,
+        content=req.content_preview or req.reason,
+        concept=req.concept,
+        pg_pool=pg_pool,
+    )
+    return {
+        "resource_id": resource_id,
+        "saved": True,
+        "duplicate": duplicate,
+        "degraded": [] if pg_pool is not None else ["pg:unavailable"],
+    }
 
 
 @router.get("/resources/{resource_id}")

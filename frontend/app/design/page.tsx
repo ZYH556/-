@@ -11,7 +11,7 @@ import {
 
 const sidebarItems: GlassSidebarItem[] = [
   { id: "space", label: "学习空间", active: true },
-  { id: "chat", label: "对话工作区" },
+  { id: "chat", label: "AI 学习导师" },
   { id: "plan", label: "学习路径" },
   { id: "growth", label: "成长档案" },
 ];
@@ -39,7 +39,7 @@ export default function DesignPage() {
       <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
         <GlassSidebar
           title="ReflexLearn"
-          subtitle="个人学习工作台"
+          subtitle="个人学习系统"
           items={sidebarItems}
           footer={<p className="text-xs text-slate-300">自进化快回路已就绪</p>}
         />
@@ -54,7 +54,7 @@ export default function DesignPage() {
                 公共资源与个人智能体分层呈现
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-300">
-                面板用于工作台主容器、资源详情和状态区，支持更强的玻璃材质以压住复杂背景。
+                面板用于学习系统主容器、资源详情和状态区，支持更强的玻璃材质以压住复杂背景。
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <GlassButton variant="primary">开始学习</GlassButton>
@@ -108,7 +108,7 @@ export default function DesignPage() {
                 onClose={() => undefined}
                 action={<GlassButton variant="primary">确认</GlassButton>}
               >
-                受控弹层组件由调用方管理 open/onClose/action，适合后续工作台复用。
+                受控弹层组件由调用方管理 open/onClose/action，适合学习系统复用。
               </GlassModal>
             </div>
           </GlassPanel>

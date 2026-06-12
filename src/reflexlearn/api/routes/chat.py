@@ -11,6 +11,7 @@ from reflexlearn.api.deps import get_current_user
 from reflexlearn.api.service_deps import safe_pg_pool
 from reflexlearn.collaboration.traces import get_default_trace_store
 from reflexlearn.common.auth import CurrentUser
+from reflexlearn.learning.spaces import SessionOutcome, get_space_store
 from reflexlearn.orchestration.graph import run_session
 from reflexlearn.safety import SafetyGateway, safety_audit_event
 from reflexlearn.security.audit import AuditLog
@@ -26,6 +27,7 @@ class ChatRequest(BaseModel):
     message: str
     user_id: str = "anonymous"
     session_id: str = ""
+    space_id: str = ""
 
 
 async def _record_trace(pg_pool, user_id: str, tenant_id: str, session_id: str, node: str, payload: dict) -> None:
@@ -43,7 +45,14 @@ async def _record_trace(pg_pool, user_id: str, tenant_id: str, session_id: str, 
         return
 
 
-async def event_stream(message: str, user_id: str, tenant_id: str, session_id: str, pg_pool=None):
+async def event_stream(
+    message: str,
+    user_id: str,
+    tenant_id: str,
+    session_id: str,
+    pg_pool=None,
+    space_id: str = "",
+):
     # 首帧回传原始 session_id：前端仅在当前浏览器会话内保存，服务端存储另做用户/租户隔离。
     yield sse_event("session", {"session_id": session_id})
     await _record_trace(
@@ -71,6 +80,9 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
         yield sse_event("done", {"status": "blocked"})
         return
 
+    # 收集本次会话的可沉淀产出（assemble 资源全文 + path_plan 路径），done 前落空间。
+    final_resources: list[dict] = []
+    final_path: dict = {}
     try:
         async for event in run_session(message, user_id, session_id, tenant_id):
             for node_name, node_output in event.items():
@@ -157,6 +169,7 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
                     )
 
                     if bundle.get("resources"):
+                        final_resources = list(bundle["resources"])
                         for res in bundle["resources"]:
                             yield sse_event(
                                 "resource_card",
@@ -169,6 +182,11 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
 
                 elif node_name == "path_plan":
                     path = node_output.get("learning_path", []) or []
+                    final_path = {
+                        "steps": path,
+                        "summary": node_output.get("path_summary", ""),
+                        "strategy": node_output.get("path_strategy", ""),
+                    }
                     yield sse_event(
                         "learning_path",
                         {
@@ -185,7 +203,75 @@ async def event_stream(message: str, user_id: str, tenant_id: str, session_id: s
     except Exception as e:
         yield sse_event("error", {"error": str(e)})
 
+    try:
+        saved = await _persist_outcome(
+            space_id=space_id,
+            message=message,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            final_resources=final_resources,
+            final_path=final_path,
+            pg_pool=pg_pool,
+        )
+        if saved:
+            yield sse_event("space_saved", saved)
+    except Exception:
+        pass
+
     yield sse_event("done", {"status": "completed"})
+
+
+async def _persist_outcome(
+    *,
+    space_id: str,
+    message: str,
+    user_id: str,
+    tenant_id: str,
+    final_resources: list[dict],
+    final_path: dict,
+    pg_pool=None,
+) -> dict | None:
+    """有实质产出（资源或路径）才沉淀；未指定空间时自动按学习目标创建。"""
+    path_steps = final_path.get("steps", []) or []
+    if not final_resources and not path_steps:
+        return None
+    store = get_space_store()
+    target_space = space_id
+    if not target_space:
+        created = await store.create_space(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            title=message[:80],
+            pg_pool=pg_pool,
+        )
+        target_space = created.space_id
+    concept_by_task = {
+        str(s.get("task_id")): str(s.get("concept") or "")
+        for s in path_steps
+        if s.get("task_id")
+    }
+    resources = [
+        {
+            "type": r.get("type", "doc"),
+            "content": r.get("content", ""),
+            "concept": concept_by_task.get(str(r.get("task_id", "")), ""),
+            "title": concept_by_task.get(str(r.get("task_id", "")), "") or message[:40],
+        }
+        for r in final_resources
+    ]
+    outcome = SessionOutcome(
+        resources=resources,
+        path_steps=path_steps,
+        path_summary=str(final_path.get("summary", "")),
+        path_strategy=str(final_path.get("strategy", "")),
+    )
+    return await store.save_session_outcome(
+        space_id=target_space,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        outcome=outcome,
+        pg_pool=pg_pool,
+    )
 
 
 def _trace_payload(node_name: str, node_output: dict) -> dict:
@@ -211,7 +297,14 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(get_current_user)):
     session_id = req.session_id or uuid.uuid4().hex
     pg_pool = await safe_pg_pool()
     return StreamingResponse(
-        event_stream(req.message, user.user_id, user.tenant_id, session_id, pg_pool=pg_pool),
+        event_stream(
+            req.message,
+            user.user_id,
+            user.tenant_id,
+            session_id,
+            pg_pool=pg_pool,
+            space_id=req.space_id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

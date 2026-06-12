@@ -1,10 +1,12 @@
 "use client";
 
+import "./workspace.css";
+
 import { usePathname } from "next/navigation";
 import { AuthGate } from "../_components/AuthGate";
 import { AuthSessionProvider } from "@/lib/authContext";
-import { workspaceNavItems } from "@/lib/nav";
-import { GlassButton, GlassPanel, GlassSidebar } from "@/components/glass";
+import { LearningCompanion } from "@/components/companion";
+import { SideNav } from "@/components/workspace";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -13,24 +15,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <AuthGate>
       {(session) => (
         <AuthSessionProvider session={session}>
-          <main className="min-h-screen px-4 py-6 text-slate-100">
-            <div className="mx-auto grid max-w-7xl gap-5 lg:grid-cols-[280px_1fr]">
-              <GlassSidebar
-                title="ReflexLearn"
-                subtitle={`${session.auth.user.tenant_id} · ${session.auth.user.role}`}
-                items={workspaceNavItems.map((item) => ({
-                  id: item.id,
-                  label: item.label,
-                  href: item.href,
-                  active: pathname === item.href,
-                }))}
-                footer={<GlassButton onClick={session.onLogout}>退出</GlassButton>}
-              />
-              <GlassPanel strong className="min-h-[calc(100vh-3rem)]">
+          <div className="ws-root min-h-screen lg:flex">
+            <SideNav
+              pathname={pathname}
+              user={session.auth.user}
+              onLogout={session.onLogout}
+            />
+            <main className="min-w-0 flex-1">
+              <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8 lg:py-12">
                 {children}
-              </GlassPanel>
-            </div>
-          </main>
+              </div>
+            </main>
+            <LearningCompanion />
+          </div>
         </AuthSessionProvider>
       )}
     </AuthGate>

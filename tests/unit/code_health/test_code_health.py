@@ -23,3 +23,15 @@ def test_unit_root_keeps_test_files_grouped_by_domain():
     root_test_files = list((PROJECT_ROOT / "tests/unit").glob("test_*.py"))
 
     assert len(root_test_files) <= 8
+
+
+def test_prompt_kit_components_are_kept_available_without_forcing_chat_runtime():
+    prompt_kit = PROJECT_ROOT / "frontend/components/prompt-kit"
+    chat_input = (PROJECT_ROOT / "frontend/components/chat/ChatInput.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert (prompt_kit / "prompt-input.tsx").exists()
+    assert (prompt_kit / "message.tsx").exists()
+    assert (prompt_kit / "markdown.tsx").exists()
+    assert "@/components/prompt-kit/prompt-input" not in chat_input

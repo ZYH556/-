@@ -139,6 +139,60 @@ def test_login_rejects_bad_password():
     assert resp.status_code == 401
 
 
+def test_register_creates_student_session():
+    client = TestClient(create_app())
+    resp = client.post(
+        "/api/auth/register",
+        json={"account": "learner@example.com", "password": "learner-pw-123"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["user"]["user_id"] == "learner@example.com"
+    assert body["user"]["role"] == "student"
+    assert "reflexlearn_session=" in resp.headers.get("set-cookie", "")
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["user_id"] == "learner@example.com"
+
+
+def test_register_rejects_duplicate_account():
+    client = TestClient(create_app())
+    payload = {"account": "duplicate@example.com", "password": "learner-pw-123"}
+    assert client.post("/api/auth/register", json=payload).status_code == 200
+    resp = client.post("/api/auth/register", json=payload)
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "account_exists"
+
+
+def test_register_rejects_weak_password():
+    client = TestClient(create_app())
+    resp = client.post(
+        "/api/auth/register",
+        json={"account": "18812345678", "password": "short"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "weak_password"
+
+
+def test_social_login_creates_demo_session():
+    client = TestClient(create_app())
+    resp = client.post("/api/auth/social", json={"provider": "github"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["user"]["user_id"] == "github:local-demo"
+    assert body["user"]["role"] == "student"
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["user_id"] == "github:local-demo"
+
+
+def test_social_login_rejects_unknown_provider():
+    client = TestClient(create_app())
+    resp = client.post("/api/auth/social", json={"provider": "dribbble"})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "unsupported_provider"
+
+
 def test_chat_requires_auth():
     client = TestClient(create_app())
     resp = client.post("/api/chat", json={"message": "hi"})

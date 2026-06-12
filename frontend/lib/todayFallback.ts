@@ -1,0 +1,137 @@
+import type { TodaySummaryView } from "@/lib/types";
+
+export const fallbackToday: TodaySummaryView = {
+  userId: "",
+  greeting: "继续推进你的机器学习主线",
+  currentGoal: "掌握线性回归与梯度下降",
+  progress: 0.62,
+  mainTask: {
+    title: "先补齐损失函数，再进入梯度下降练习",
+    reason:
+      "你的最近错题集中在代价函数含义和参数更新方向。系统建议先完成一段短讲解，再做 5 道针对性练习。",
+    estimatedMinutes: 32,
+    spaceId: "",
+    spaceName: "机器学习基础强化",
+    pathNode: "线性回归 / 损失函数",
+    primaryAction: "开始今日学习",
+  },
+  pathNodes: [
+    {
+      id: "data-fit",
+      title: "拟合关系",
+      status: "done",
+      summary: "已完成散点趋势、残差和模型假设。",
+    },
+    {
+      id: "loss-function",
+      title: "损失函数",
+      status: "current",
+      summary: "正在补齐代价含义与误差平方和。",
+    },
+    {
+      id: "gradient-descent",
+      title: "梯度下降",
+      status: "next",
+      summary: "下一步进入参数更新和学习率选择。",
+    },
+  ],
+  pathRecommendation:
+    "这条路径先建立损失函数直觉，再处理梯度下降，可以降低公式推导和参数更新同时出现时的认知负担。",
+  resources: [
+    {
+      id: "loss-bilibili",
+      type: "external_video",
+      title: "线性回归中的损失函数直观理解",
+      provider: "Bilibili · 机器学习公开课片段",
+      sourceLabel: "B 站视频",
+      estimatedMinutes: 14,
+      reason: "先用图像建立代价曲线的直觉，再回到公式会更稳。",
+      href: "https://search.bilibili.com/all?keyword=%E7%BA%BF%E6%80%A7%E5%9B%9E%E5%BD%92%20%E6%8D%9F%E5%A4%B1%E5%87%BD%E6%95%B0",
+    },
+    {
+      id: "loss-ai-doc",
+      type: "ai_document",
+      title: "从误差平方和到代价函数",
+      provider: "ReflexLearn AI 导师",
+      sourceLabel: "AI 讲解文档",
+      estimatedMinutes: 8,
+      reason: "按你的错题记录重写公式推导，减少跳步。",
+      href: "/resources",
+    },
+    {
+      id: "gradient-quiz",
+      type: "quiz",
+      title: "损失函数与参数更新 5 题短练",
+      provider: "ReflexLearn 练习生成",
+      sourceLabel: "针对练习",
+      estimatedMinutes: 10,
+      reason: "题目集中验证学习率、梯度方向和误差判断。",
+      href: "/chat",
+    },
+    {
+      id: "sklearn-linear-model",
+      type: "official_doc",
+      title: "Linear Models 用户指南",
+      provider: "scikit-learn",
+      sourceLabel: "官方资料",
+      estimatedMinutes: 18,
+      reason: "用官方说明对齐概念边界，避免把优化过程和模型形式混在一起。",
+      href: "https://scikit-learn.org/stable/modules/linear_model.html",
+    },
+  ],
+  tutorPrompt: "如果你愿意，我可以用 3 个问题判断你是否真的理解梯度下降。",
+  quickActions: [
+    {
+      id: "upload",
+      label: "上传课程资料",
+      description: "补充老师讲义或课堂截图",
+      href: "/knowledge",
+      icon: "upload",
+    },
+    {
+      id: "mistake",
+      label: "录入一道错题",
+      description: "让系统定位卡点原因",
+      href: "/mistakes",
+      icon: "mistake",
+    },
+    {
+      id: "practice",
+      label: "生成一组练习",
+      description: "围绕当前薄弱点出题",
+      href: "/chat",
+      icon: "practice",
+    },
+    {
+      id: "goal",
+      label: "创建学习目标",
+      description: "开启一条新的学习主线",
+      href: "/spaces",
+      icon: "goal",
+    },
+  ],
+  profileSignals: [
+    { label: "学习偏好", value: "视频讲解 + 五题短练习" },
+    { label: "公式理解", value: "对公式推导容易卡住" },
+    { label: "实践表现", value: "编程案例完成度较高" },
+    { label: "当前薄弱点", value: "损失函数、梯度方向" },
+  ],
+  reviewQueue: [
+    {
+      topic: "代价函数求导",
+      reason: "最近两次练习都把系数 2 与样本均值项混淆了。",
+      dueLabel: "今天",
+    },
+    {
+      topic: "学习率过大导致震荡",
+      reason: "需要通过曲线形状判断参数是否越过最优点。",
+      dueLabel: "明天",
+    },
+    {
+      topic: "训练集与测试集误差判断",
+      reason: "复盘欠拟合、过拟合和数据划分的关系。",
+      dueLabel: "本周",
+    },
+  ],
+  degraded: [],
+};

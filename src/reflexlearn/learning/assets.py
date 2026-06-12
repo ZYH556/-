@@ -24,6 +24,14 @@ class LearningResource(BaseModel):
     title: str = ""
     content_preview: str = ""
     visibility: Visibility = "private"
+    provider: str = ""
+    source_label: str = ""
+    href: str = ""
+    embed_url: str = ""
+    usage_mode: str = "personal"
+    source_policy: str = "owned_or_generated"
+    estimated_minutes: int = 10
+    reason: str = ""
 
 
 class KnowledgeDocument(BaseModel):
@@ -115,7 +123,19 @@ class LearningAssetStore:
                         SELECT id::text AS resource_id, user_id, tenant_id, type,
                                COALESCE(meta->>'title', type) AS title,
                                LEFT(COALESCE(content, ''), 180) AS content_preview,
-                               visibility
+                               visibility,
+                               COALESCE(meta->>'provider', '') AS provider,
+                               COALESCE(meta->>'source_label', '') AS source_label,
+                               COALESCE(meta->>'href', '') AS href,
+                               COALESCE(meta->>'embed_url', '') AS embed_url,
+                               COALESCE(meta->>'usage_mode', 'personal') AS usage_mode,
+                               COALESCE(meta->>'source_policy', 'owned_or_generated') AS source_policy,
+                               CASE
+                                   WHEN COALESCE(meta->>'estimated_minutes', '') ~ '^[0-9]+$'
+                                   THEN (meta->>'estimated_minutes')::int
+                                   ELSE 10
+                               END AS estimated_minutes,
+                               COALESCE(meta->>'reason', '') AS reason
                         FROM resources
                         WHERE user_id=$1 AND tenant_id=$2
                         ORDER BY created_at DESC
@@ -142,7 +162,19 @@ class LearningAssetStore:
                         SELECT id::text AS resource_id, user_id, tenant_id, type,
                                COALESCE(meta->>'title', type) AS title,
                                LEFT(COALESCE(content, ''), 180) AS content_preview,
-                               visibility
+                               visibility,
+                               COALESCE(meta->>'provider', '') AS provider,
+                               COALESCE(meta->>'source_label', '') AS source_label,
+                               COALESCE(meta->>'href', '') AS href,
+                               COALESCE(meta->>'embed_url', '') AS embed_url,
+                               COALESCE(meta->>'usage_mode', 'personal') AS usage_mode,
+                               COALESCE(meta->>'source_policy', 'owned_or_generated') AS source_policy,
+                               CASE
+                                   WHEN COALESCE(meta->>'estimated_minutes', '') ~ '^[0-9]+$'
+                                   THEN (meta->>'estimated_minutes')::int
+                                   ELSE 10
+                               END AS estimated_minutes,
+                               COALESCE(meta->>'reason', '') AS reason
                         FROM resources
                         WHERE id::text=$1
                         """,
@@ -153,6 +185,72 @@ class LearningAssetStore:
             except Exception:
                 pass
         return self._resources.get(resource_id)
+
+    async def save_resource(
+        self,
+        item: LearningResource,
+        *,
+        candidate_id: str,
+        content: str = "",
+        concept: str = "",
+        pg_pool=None,
+    ) -> tuple[str, bool]:
+        """候选资源入库（来自 /resources/discover 的一键保存）。
+
+        幂等键 = (user, tenant, meta.candidate_id)：重复保存返回已有 id，不再插行。
+        返回 (resource_id, duplicate)。PG 不可用降级内存（key=candidate_id）。
+        """
+        meta = {
+            "title": item.title,
+            "provider": item.provider,
+            "source_label": item.source_label,
+            "href": item.href,
+            "embed_url": item.embed_url,
+            "usage_mode": item.usage_mode,
+            "source_policy": item.source_policy,
+            "estimated_minutes": str(item.estimated_minutes),
+            "reason": item.reason,
+            "origin": "discover",
+            "candidate_id": candidate_id,
+        }
+        if pg_pool is not None:
+            try:
+                import json
+
+                async with pg_pool.acquire() as conn:
+                    existing = await conn.fetchval(
+                        """
+                        SELECT id::text FROM resources
+                        WHERE user_id=$1 AND tenant_id=$2 AND meta->>'candidate_id'=$3
+                        LIMIT 1
+                        """,
+                        item.user_id,
+                        item.tenant_id,
+                        candidate_id,
+                    )
+                    if existing:
+                        return str(existing), True
+                    new_id = await conn.fetchval(
+                        """
+                        INSERT INTO resources (type, content, meta, user_id, tenant_id, visibility, concept)
+                        VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+                        RETURNING id::text
+                        """,
+                        item.type,
+                        content or item.reason,
+                        json.dumps(meta, ensure_ascii=False),
+                        item.user_id,
+                        item.tenant_id,
+                        item.visibility,
+                        concept,
+                    )
+                return str(new_id), False
+            except Exception:
+                pass
+        duplicate = candidate_id in self._resources
+        if not duplicate:
+            self._resources[candidate_id] = item.model_copy(update={"resource_id": candidate_id})
+        return candidate_id, duplicate
 
     async def list_documents(self, *, user_id: str, tenant_id: str, pg_pool=None) -> AssetList:
         if pg_pool is not None:

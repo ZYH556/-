@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { NotebookPen, Plus, X } from "lucide-react";
 
-import { GlassButton, GlassCard, GlassPanel } from "@/components/glass";
+import { EmptyState, PageHeader, Tag, WsButton, WsCard } from "@/components/workspace";
 import { apiJson, getErrorMessage } from "@/lib/apiClient";
 import { useAuthSession } from "@/lib/authContext";
 import type {
@@ -12,8 +13,10 @@ import type {
   MistakeResource,
   MistakeReview,
 } from "@/lib/types";
+import { MistakeDetail, type MistakeAction } from "./MistakeDetail";
+import { MistakeForm } from "./MistakeForm";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
 export default function MistakesPage() {
   const { auth } = useAuthSession();
@@ -23,13 +26,10 @@ export default function MistakesPage() {
   const [plan, setPlan] = useState<MistakePlan | null>(null);
   const [resources, setResources] = useState<MistakeResource[]>([]);
   const [review, setReview] = useState<MistakeReview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [formOpen, setFormOpen] = useState(false);
+  const [busy, setBusy] = useState<MistakeAction | null>(null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    question: "",
-    answer: "",
-    expected: "",
-    concept: "",
-  });
 
   async function load() {
     const data = await apiJson<{ items: MistakeItem[] }>(
@@ -44,27 +44,10 @@ export default function MistakesPage() {
   }
 
   useEffect(() => {
-    load().catch((e: unknown) => setError(getErrorMessage(e)));
+    load()
+      .catch((e: unknown) => setError(getErrorMessage(e)))
+      .finally(() => setLoading(false));
   }, []);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    try {
-      const created = await apiJson<MistakeItem>(
-        `${API_BASE}/mistakes`,
-        auth.access_token,
-        {
-          method: "POST",
-          body: JSON.stringify(form),
-        },
-      );
-      setItems((prev) => [created, ...prev]);
-      setForm({ question: "", answer: "", expected: "", concept: "" });
-    } catch (err: unknown) {
-      setError(getErrorMessage(err));
-    }
-  }
 
   async function reviewMistake(id: string) {
     setError("");
@@ -81,7 +64,7 @@ export default function MistakesPage() {
     }
   }
 
-  async function selectMistake(item: MistakeItem) {
+  function selectMistake(item: MistakeItem) {
     setSelected(item);
     setReflection(readAnalysis<MistakeReflection>(item, "reflection"));
     setPlan(readAnalysis<MistakePlan>(item, "remedial_plan"));
@@ -90,8 +73,14 @@ export default function MistakesPage() {
     setReview(null);
   }
 
-  async function runAction<T>(path: string, setter: (value: T) => void, init: RequestInit = {}) {
+  async function runAction<T>(
+    action: MistakeAction,
+    path: string,
+    setter: (value: T) => void,
+    init: RequestInit = {},
+  ) {
     if (!selected) return;
+    setBusy(action);
     setError("");
     try {
       const data = await apiJson<T>(`${API_BASE}${path}`, auth.access_token, init);
@@ -99,161 +88,166 @@ export default function MistakesPage() {
       await load();
     } catch (err: unknown) {
       setError(getErrorMessage(err));
+    } finally {
+      setBusy(null);
     }
   }
 
-  async function markReviewed() {
-    if (!selected) return;
-    await runAction<MistakeItem>(
-      `/mistakes/${selected.mistake_id}/review`,
-      (value) => setSelected(value),
-      { method: "PATCH", body: JSON.stringify({ review_status: "reviewed" }) },
-    );
-  }
-
   return (
-    <section className="space-y-4">
-      <h1 className="text-2xl font-semibold text-white">错题本</h1>
-      <GlassPanel className="space-y-4">
-        <form className="grid gap-3 md:grid-cols-2" onSubmit={submit}>
-          {(["question", "answer", "expected", "concept"] as const).map((field) => (
-            <label key={field} className="space-y-1 text-sm text-white/70">
-              <span>{labelFor(field)}</span>
-              <textarea
-                className="min-h-20 w-full resize-y rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-white outline-none transition focus:border-white/30"
-                value={form[field]}
-                onChange={(e) => setForm((prev) => ({ ...prev, [field]: e.target.value }))}
-                required={field !== "concept"}
-              />
-            </label>
-          ))}
-          <div className="md:col-span-2">
-            <GlassButton type="submit">记录错题</GlassButton>
-          </div>
-        </form>
-        {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-      </GlassPanel>
+    <section className="space-y-8">
+      <PageHeader
+        eyebrow="Mistakes"
+        title="错题本"
+        description="记录错题，智能体帮你归因薄弱点、生成补救计划与针对性练习，把每一次出错变成一次进化。"
+        actions={
+          <WsButton variant="primary" onClick={() => setFormOpen((v) => !v)}>
+            {formOpen ? <X size={15} aria-hidden /> : <Plus size={15} aria-hidden />}
+            {formOpen ? "收起表单" : "记录错题"}
+          </WsButton>
+        }
+      />
 
-      {review ? (
-        <GlassCard tone="ember" eyebrow="review" title="元认知归因">
-          <div className="space-y-3 text-sm text-white/75">
-            <p>{review.cause}</p>
-            <div className="flex flex-wrap gap-2">
-              {review.weakness_tags.map((tag) => (
-                <span key={tag} className="rounded-full bg-white/10 px-3 py-1 text-xs">
-                  {tag}
-                </span>
-              ))}
-            </div>
-            <ol className="list-decimal space-y-1 pl-5">
-              {review.review_plan.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-          </div>
-        </GlassCard>
+      {formOpen ? (
+        <MistakeForm
+          onCreated={(created) => {
+            setItems((prev) => [created, ...prev]);
+            setFormOpen(false);
+          }}
+          onError={setError}
+        />
       ) : null}
 
-      {selected ? (
-        <GlassPanel className="space-y-4" tone="mint">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase text-cyan-200/80">detail</p>
-              <h2 className="mt-1 text-lg font-semibold text-white">{selected.question}</h2>
-              <p className="mt-1 text-sm text-white/60">状态：{selected.status}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <GlassButton
-                onClick={() =>
-                  runAction<MistakeReflection>(
-                    `/mistakes/${selected.mistake_id}/reflect`,
-                    setReflection,
-                    { method: "POST" },
-                  )
-                }
-              >
-                归因
-              </GlassButton>
-              <GlassButton
-                onClick={() =>
-                  runAction<MistakePlan>(
-                    `/mistakes/${selected.mistake_id}/plan`,
-                    setPlan,
-                    { method: "POST" },
-                  )
-                }
-              >
-                计划
-              </GlassButton>
-              <GlassButton
-                onClick={() =>
-                  runAction<{ resources: MistakeResource[] }>(
-                    `/mistakes/${selected.mistake_id}/resources`,
-                    (value) => setResources(value.resources),
-                    { method: "POST" },
-                  )
-                }
-              >
-                资源
-              </GlassButton>
-              <GlassButton onClick={markReviewed}>已复习</GlassButton>
-            </div>
-          </div>
-
-          {reflection ? (
-            <GlassCard tone="ember" eyebrow={reflection.category} title="归因结果">
-              <p>{reflection.cause}</p>
-              <p className="mt-2 text-white/60">{reflection.remedial_goal}</p>
-            </GlassCard>
-          ) : null}
-
-          {plan ? (
-            <GlassCard tone="aurora" eyebrow="path" title="补救计划">
-              <ol className="list-decimal space-y-2 pl-5">
-                {plan.steps.map((step) => (
-                  <li key={step.task_id}>
-                    <span className="text-white">{step.objective}</span>
-                    <p className="text-xs text-white/55">{step.rationale}</p>
-                  </li>
-                ))}
-              </ol>
-            </GlassCard>
-          ) : null}
-
-          {resources.length > 0 ? (
-            <div className="grid gap-3">
-              {resources.map((item) => (
-                <GlassCard key={item.resource_id} tone="default" eyebrow={item.type} title={item.title}>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-white/70">
-                    {item.content}
-                  </pre>
-                </GlassCard>
-              ))}
-            </div>
-          ) : null}
-        </GlassPanel>
+      {error ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </p>
       ) : null}
 
-      <div className="grid gap-3">
-        {items.map((item) => (
-          <GlassCard
-            key={item.mistake_id}
-            tone={item.status === "reviewed" ? "aurora" : "ember"}
-            eyebrow={item.concept || "mistake"}
-            title={item.question}
-            action={
-              <div className="flex gap-2">
-                <GlassButton onClick={() => selectMistake(item)}>详情</GlassButton>
-                <GlassButton onClick={() => reviewMistake(item.mistake_id)}>旧归因</GlassButton>
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div className="space-y-3">
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => <div key={i} className="ws-skeleton h-28" />)
+          ) : items.length === 0 ? (
+            <EmptyState
+              icon={NotebookPen}
+              title="还没有错题记录"
+              description="点击右上角「记录错题」，写下题目、你的答案与参考要点，开始第一次错因归零。"
+            />
+          ) : (
+            items.map((item) => {
+              const active = selected?.mistake_id === item.mistake_id;
+              return (
+                <button
+                  key={item.mistake_id}
+                  onClick={() => selectMistake(item)}
+                  className={`ws-card w-full p-4 text-left transition-all hover:shadow-[0_4px_16px_rgb(5_26_36/0.08)] ${
+                    active ? "border-[var(--ws-navy)] ring-1 ring-[var(--ws-navy)]" : ""
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {item.concept ? <Tag tone="navy">{item.concept}</Tag> : null}
+                    {item.status === "reviewed" ? (
+                      <Tag tone="success">已复习</Tag>
+                    ) : (
+                      <Tag tone="warning">待复习</Tag>
+                    )}
+                  </div>
+                  <p className="mt-2 line-clamp-2 font-medium text-[var(--ws-ink)]">
+                    {item.question}
+                  </p>
+                  <p className="mt-1 line-clamp-1 text-sm text-slate-500">{item.answer}</p>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void reviewMistake(item.mistake_id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation();
+                        void reviewMistake(item.mistake_id);
+                      }
+                    }}
+                    className="mt-2.5 inline-block text-xs text-[var(--ws-accent)] hover:underline"
+                  >
+                    快速归因 →
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="space-y-4 lg:sticky lg:top-8">
+          {review ? (
+            <WsCard eyebrow="Quick Review" title="元认知归因">
+              <div className="space-y-3 text-sm text-slate-700">
+                <p>{review.cause}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {review.weakness_tags.map((tag) => (
+                    <Tag key={tag} tone="danger">
+                      {tag}
+                    </Tag>
+                  ))}
+                </div>
+                <ol className="list-decimal space-y-1 pl-5">
+                  {review.review_plan.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
               </div>
-            }
-          >
-            <div className="space-y-2 text-sm text-white/70">
-              <p>你的答案：{item.answer}</p>
-              <p>参考要点：{item.expected}</p>
-            </div>
-          </GlassCard>
-        ))}
+            </WsCard>
+          ) : null}
+
+          {selected ? (
+            <MistakeDetail
+              item={selected}
+              reflection={reflection}
+              plan={plan}
+              resources={resources}
+              busy={busy}
+              onReflect={() =>
+                runAction<MistakeReflection>(
+                  "reflect",
+                  `/mistakes/${selected.mistake_id}/reflect`,
+                  setReflection,
+                  { method: "POST" },
+                )
+              }
+              onPlan={() =>
+                runAction<MistakePlan>(
+                  "plan",
+                  `/mistakes/${selected.mistake_id}/plan`,
+                  setPlan,
+                  { method: "POST" },
+                )
+              }
+              onResources={() =>
+                runAction<{ resources: MistakeResource[] }>(
+                  "resources",
+                  `/mistakes/${selected.mistake_id}/resources`,
+                  (value) => setResources(value.resources),
+                  { method: "POST" },
+                )
+              }
+              onMarkReviewed={() =>
+                runAction<MistakeItem>(
+                  "review",
+                  `/mistakes/${selected.mistake_id}/review`,
+                  (value) => setSelected(value),
+                  { method: "PATCH", body: JSON.stringify({ review_status: "reviewed" }) },
+                )
+              }
+            />
+          ) : !loading && items.length > 0 ? (
+            <EmptyState
+              icon={NotebookPen}
+              title="从左侧选择一道错题"
+              description="选中后可以查看详情，并生成归因分析、补救计划与针对性练习资源。"
+            />
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -262,13 +256,4 @@ export default function MistakesPage() {
 function readAnalysis<T>(item: MistakeItem, key: string): T | null {
   const value = item.analysis?.[key];
   return value ? (value as T) : null;
-}
-
-function labelFor(field: "question" | "answer" | "expected" | "concept") {
-  return {
-    question: "题目",
-    answer: "你的答案",
-    expected: "参考要点",
-    concept: "关联概念",
-  }[field];
 }

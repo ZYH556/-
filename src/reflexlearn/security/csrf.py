@@ -2,7 +2,7 @@
 
 设计：仅对"用 HttpOnly session cookie 鉴权"的写请求强制 CSRF；纯 Bearer
 请求（无 session cookie，攻击者无法注入 Authorization）天然免疫，豁免校验，
-保证脚本/API 调用不受影响。GET/HEAD/OPTIONS 与 /auth/login、/auth/logout 豁免。
+保证脚本/API 调用不受影响。GET/HEAD/OPTIONS 与 /auth/login、/auth/register、/auth/social、/auth/logout 豁免。
 """
 
 from __future__ import annotations
@@ -51,7 +51,12 @@ def clear_csrf_cookie(response, settings: Settings | None = None) -> None:
 
 
 def _is_exempt_path(path: str) -> bool:
-    return path.endswith("/auth/login") or path.endswith("/auth/logout")
+    return (
+        path.endswith("/auth/login")
+        or path.endswith("/auth/register")
+        or path.endswith("/auth/social")
+        or path.endswith("/auth/logout")
+    )
 
 
 def csrf_validate(request: Request, settings: Settings | None = None) -> bool:
