@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**W3 续：路径节点关联资源（plan↔resources 闭环补完）**——①后端 `path_ops.py`：`load_active_path_items` 按 concept 批量查资源（每节点最多 2 个，一次查询内存分组），`PathItemView`/`PathItemResource` 带资源引用；`today.py` 节点透传 `resources`（`TodayPathResource`）。②`seed_demo_cli.py`：路径节点 concept 从泛词（建立直觉/补齐卡点）改为该 space 真实资源 concept（损失函数/梯度下降…），不足补 fallback——让 concept 匹配能命中（种子数据对齐）。③前端 `PlanTimeline` 节点卡底部「这一步可以看」+ 资源链接（进资源详情页）。④活体闭环：/plan 节点「React 状态模型」挂 2 资源 → 点击 → `/resources/331` 详情页（可标记学习状态）——**路径→资源→详情→状态回写→画像** 整条闭环无断点。验证：全量 **557 passed**（+1）；tsc 0 错；截图 ws-plan-node-resources.png。**注**：节点关联走 concept 自动匹配（非手动绑定），泛步节点无匹配资源属设计；候选资源显式绑定 path_items.resource_id 待后续。上一轮：W3（节点操作 + 双序列火花线）。
+最后更新：2026-06-13 · 本轮成果：**资源详情页 B 站视频站内播放（真实搜索"真实可用"收口）+ codex 审查交接**——①新增 `components/resource/ResourceEmbed.tsx`：external_video + embed_url 资源在详情页内嵌 B 站官方播放器（16:9，sandbox 隔离，referrerPolicy=no-referrer）；**默认不挂 iframe**（点击"在站内播放"才加载，不自动外呼/不泄漏 referrer，贴合 metadata_only 红线）；`resources/[id]/page.tsx` 接入。活体：id=254（真实 bvid BV1PrLS6pEJS）点击播放 → B 站播放器站内渲染（标题/UP主/9.7万赞/43:52 控件齐全）——**真实搜索→保存→详情页站内播放** 闭环打通。②新增 `docs/24-Claude全栈接管代码审查交接.md`（给 codex 的审查向导：范围 a50b516^..110d9cc、核心文件清单、设计决策、**§4 主动暴露 7 项待确认边界**、验证命令）。验证：全量 **557 passed**；tsc 0 错；check_frontend_ia ok；截图 ws-resource-video-embed.png。上一轮：W3 续（路径节点关联资源）。**codex 正在并行审查接管以来代码**（范围见 docs/24 §1）。
 
 ---
 
@@ -126,6 +126,12 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-6 ✅ · 资源详情页 B 站视频站内播放 + codex 审查交接（Claude 全栈轮）
+
+- `components/resource/ResourceEmbed.tsx`（新）：external_video + embed_url → B 站官方播放器内嵌（sandbox/no-referrer，点击才挂 iframe，不自动外呼）；`resources/[id]/page.tsx` 接入。
+- `docs/24`（新）：codex 审查向导，§4 主动暴露 7 项待确认边界（读侧 ACL/快照节流/concept 精确匹配/token 空串残留/candidate_id 唯一性/内存兜底多 worker/行数压线）。
+- 活体：id=254 真实 bvid 站内播放成功，真实搜索→保存→播放闭环。全量 557 passed。
 
 ### FS-5 ✅ · W3 续：路径节点关联资源（plan↔resources 闭环补完，Claude 全栈轮）
 

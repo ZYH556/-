@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ExternalLink, FileQuestion, FolderOpen, NotebookPen } from "lucide-react";
 
 import { ResourceStudyActions } from "@/components/resource/ResourceStudyActions";
+import { ResourceEmbed } from "@/components/resource/ResourceEmbed";
 import { isExternalHref, viewForResource } from "@/components/resource/resourceView";
 import { EmptyState, Tag } from "@/components/workspace";
 import { getErrorMessage } from "@/lib/apiClient";
@@ -132,6 +133,8 @@ export default function ResourceDetailPage({
           </div>
         ) : null}
       </header>
+
+      <ResourceEmbed type={resource.type} embedUrl={resource.embed_url} title={resource.title} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <RelatedCard
