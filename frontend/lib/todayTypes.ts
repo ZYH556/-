@@ -37,6 +37,7 @@ export interface TodayLearningPathNode {
   title: string;
   status: TodayPathStatus;
   summary: string;
+  item_id?: number | null;
 }
 
 export interface TodayProfileSignal {

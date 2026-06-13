@@ -20,21 +20,35 @@ const H = 120;
 const PAD_X = 10;
 const PAD_Y = 16;
 
-/* 进度火花线：画像快照的 progress 序列。印刷细线 + 空心数据点，
-   stroke-dashoffset 从右往左「手绘」入场（与 ProgressRing 同一动效语言）。 */
+/* 进度火花线：画像快照双序列——progress 实线（navy）+ 完成资源数点线（accent，
+   按区间最大值归一）。印刷细线 + 空心数据点，stroke-dashoffset 手绘入场。 */
 export function TrendSparkline({ trend }: { trend: ProfileTrend }) {
   const armed = useArmed();
   const pathRef = useRef<SVGPolylineElement>(null);
   const [length, setLength] = useState(0);
 
-  const points = trend.items.map((item, index) => {
-    const x =
-      trend.items.length === 1
-        ? W / 2
-        : PAD_X + (index / (trend.items.length - 1)) * (W - PAD_X * 2);
-    const y = H - PAD_Y - Math.min(1, Math.max(0, item.progress)) * (H - PAD_Y * 2);
-    return { x, y, progress: item.progress, version: item.version };
-  });
+  const xAt = (index: number) =>
+    trend.items.length === 1
+      ? W / 2
+      : PAD_X + (index / (trend.items.length - 1)) * (W - PAD_X * 2);
+  const yAt = (ratio: number) =>
+    H - PAD_Y - Math.min(1, Math.max(0, ratio)) * (H - PAD_Y * 2);
+
+  const points = trend.items.map((item, index) => ({
+    x: xAt(index),
+    y: yAt(item.progress),
+    progress: item.progress,
+    version: item.version,
+  }));
+
+  const maxCompleted = Math.max(...trend.items.map((i) => i.completed_resources ?? 0), 0);
+  const completedPoints =
+    maxCompleted > 0
+      ? trend.items.map((item, index) => ({
+          x: xAt(index),
+          y: yAt((item.completed_resources ?? 0) / maxCompleted),
+        }))
+      : [];
 
   useEffect(() => {
     if (pathRef.current) setLength(pathRef.current.getTotalLength());
@@ -42,16 +56,29 @@ export function TrendSparkline({ trend }: { trend: ProfileTrend }) {
 
   const first = points[0];
   const last = points[points.length - 1];
+  const lastCompleted = trend.items[trend.items.length - 1]?.completed_resources ?? 0;
 
   return (
     <figure
       role="img"
-      aria-label={`画像进度从 ${Math.round(trend.start_progress * 100)}% 到 ${Math.round(trend.latest_progress * 100)}%，共 ${trend.items.length} 份快照`}
+      aria-label={`画像进度从 ${Math.round(trend.start_progress * 100)}% 到 ${Math.round(trend.latest_progress * 100)}%，最新完成资源 ${lastCompleted} 项，共 ${trend.items.length} 份快照`}
     >
       <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" aria-hidden>
         {/* 印刷基线：上下两条点线界出 0% 与 100% */}
         <line x1={PAD_X} x2={W - PAD_X} y1={PAD_Y} y2={PAD_Y} stroke="var(--ws-line-strong)" strokeWidth="1" strokeDasharray="1 5" />
         <line x1={PAD_X} x2={W - PAD_X} y1={H - PAD_Y} y2={H - PAD_Y} stroke="var(--ws-line-strong)" strokeWidth="1" strokeDasharray="1 5" />
+        {completedPoints.length >= 2 ? (
+          <polyline
+            points={completedPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke="var(--ws-accent)"
+            strokeWidth="1.5"
+            strokeDasharray="4 5"
+            strokeLinecap="round"
+            opacity={armed ? 0.85 : 0}
+            style={{ transition: "opacity 0.6s ease 0.7s" }}
+          />
+        ) : null}
         <polyline
           ref={pathRef}
           points={points.map((p) => `${p.x},${p.y}`).join(" ")}
@@ -78,12 +105,23 @@ export function TrendSparkline({ trend }: { trend: ProfileTrend }) {
           />
         ))}
       </svg>
-      <figcaption className="mt-1 flex items-baseline justify-between text-xs text-slate-500">
+      <figcaption className="mt-1 flex flex-wrap items-baseline justify-between gap-2 text-xs text-slate-500">
         <span>
           首份快照 <span className="ws-serif text-sm text-[var(--ws-ink)]">{Math.round((first?.progress ?? 0) * 100)}%</span>
-        </span>
-        <span>
+          <span className="mx-2 text-[var(--ws-line-strong)]">·</span>
           最新 <span className="ws-serif text-sm text-[var(--ws-ink)]">{Math.round((last?.progress ?? 0) * 100)}%</span>
+        </span>
+        <span className="inline-flex items-center gap-3">
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="inline-block h-0.5 w-4 bg-[var(--ws-navy)]" />
+            画像进度
+          </span>
+          {maxCompleted > 0 ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="inline-block h-0 w-4 border-t-2 border-dashed border-[var(--ws-accent)]" />
+              完成资源 {lastCompleted} 项
+            </span>
+          ) : null}
         </span>
       </figcaption>
     </figure>

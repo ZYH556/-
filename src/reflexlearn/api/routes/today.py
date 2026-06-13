@@ -9,6 +9,7 @@ from reflexlearn.api.deps import get_current_user
 from reflexlearn.common.auth import CurrentUser
 from reflexlearn.learning.assets import AssetList, LearningAssetStore
 from reflexlearn.learning.mistakes import MistakeList, MistakeStore
+from reflexlearn.learning.path_ops import load_active_path_items
 from reflexlearn.learning.today import TodaySummary, build_today_summary
 from reflexlearn.memory import session_store
 
@@ -46,6 +47,9 @@ async def get_today(user: CurrentUser = Depends(get_current_user)) -> TodaySumma
         pg_pool=pg_pool,
     )
     profile = await session_store.load_profile(user.user_id, tenant_id=user.tenant_id)
+    path_items = await load_active_path_items(
+        user_id=user.user_id, tenant_id=user.tenant_id, pg_pool=pg_pool
+    )
 
     degraded.extend(_degraded(spaces_result))
     degraded.extend(_degraded(resources_result))
@@ -57,6 +61,7 @@ async def get_today(user: CurrentUser = Depends(get_current_user)) -> TodaySumma
         resources=[_dump(item) for item in resources_result.items],
         mistakes=[_dump(item) for item in mistakes_result.items],
         profile=profile,
+        path_items=[item.model_dump() for item in path_items],
         degraded=degraded,
     )
 

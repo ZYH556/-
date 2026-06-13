@@ -6,6 +6,8 @@ import { NotebookPen, Plus, X } from "lucide-react";
 import { EmptyState, PageHeader, Tag, WsButton, WsCard } from "@/components/workspace";
 import { apiJson, getErrorMessage } from "@/lib/apiClient";
 import { useAuthSession } from "@/lib/authContext";
+import { insertRemedialItem } from "@/lib/planApi";
+import { getTodaySummary } from "@/lib/todayApi";
 import type {
   MistakeItem,
   MistakePlan,
@@ -30,6 +32,8 @@ export default function MistakesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState<MistakeAction | null>(null);
   const [error, setError] = useState("");
+  const [pathAnchor, setPathAnchor] = useState<number | null>(null);
+  const [insertState, setInsertState] = useState<"idle" | "saving" | "saved">("idle");
 
   async function load() {
     const data = await apiJson<{ items: MistakeItem[] }>(
@@ -47,7 +51,32 @@ export default function MistakesPage() {
     load()
       .catch((e: unknown) => setError(getErrorMessage(e)))
       .finally(() => setLoading(false));
+    // 当前学习路径的进行中节点：补救计划「插入路径」的锚点（无真实路径则不显示入口）
+    getTodaySummary(auth.access_token)
+      .then((today) => {
+        const current = today.pathNodes.find((n) => n.status === "current" && n.item_id);
+        setPathAnchor(current?.item_id ?? null);
+      })
+      .catch(() => setPathAnchor(null));
   }, []);
+
+  async function insertPlanToPath() {
+    if (!selected || !plan || !pathAnchor || insertState !== "idle") return;
+    setInsertState("saving");
+    setError("");
+    try {
+      await insertRemedialItem(
+        auth.access_token,
+        pathAnchor,
+        selected.concept || "错题补救",
+        plan.steps[0]?.objective ?? "",
+      );
+      setInsertState("saved");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
+      setInsertState("idle");
+    }
+  }
 
   async function reviewMistake(id: string) {
     setError("");
@@ -71,6 +100,7 @@ export default function MistakesPage() {
     const pack = readAnalysis<{ resources: MistakeResource[] }>(item, "targeted_resources");
     setResources(pack?.resources ?? []);
     setReview(null);
+    setInsertState("idle");
   }
 
   async function runAction<T>(
@@ -207,6 +237,8 @@ export default function MistakesPage() {
               plan={plan}
               resources={resources}
               busy={busy}
+              insertState={pathAnchor ? insertState : null}
+              onInsertToPath={insertPlanToPath}
               onReflect={() =>
                 runAction<MistakeReflection>(
                   "reflect",

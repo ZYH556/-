@@ -10,6 +10,7 @@ from reflexlearn.api.routes import (
     health,
     knowledge,
     mistakes,
+    plan,
     profile,
     today,
     traces,
@@ -69,5 +70,6 @@ def create_app() -> FastAPI:
     app.include_router(video.router, prefix="/api", tags=["video"])
     app.include_router(profile.router, prefix="/api", tags=["profile"])
     app.include_router(today.router, prefix="/api", tags=["today"])
+    app.include_router(plan.router, prefix="/api", tags=["plan"])
     app.include_router(tutor.router, prefix="/api", tags=["tutor"])
     return app

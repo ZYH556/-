@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**W2 主体：B 站真实搜索接入 + 行为闭环喂画像**——①**B 站 wbi 签名搜索落地**（spike 验证 → 生产实现 `learning/bilibili_search.py`：nav 取 key + 固定置换表 mixin + MD5 签名、buvid cookie、关键词缓存 1h、滑窗限频 10/min、`trust_env=False` 防本机死代理、**任何失败返 None 回落静态候选**）；discover 路由合并真实条目（`merge_live_videos` 纯函数：替换静态 bilibili 候选、保留其他 provider、degraded 标注 `bilibili:live`/`bilibili:fallback_static`）；搜索词 `discovery_query`=goal+薄弱点组合（单独薄弱点「数学推导」会搜出专升本数学——已实证修正）；conftest **类级守卫拦 `BiliSearchClient.search_videos`**（hermetic，原方法存 `_original_search_videos` 供测试），config +`enable_bilibili_search`/`bili_search_timeout_s`；活体：discover 返回「线性回归与非线性回归！最小二乘法！保姆级讲解！」等 3 条真实条目（bvid 链接+真实时长），浏览器保存真实视频落库（id=254，bvid 作幂等键）。②**行为闭环**：ProfileSummary +`study_stats`（resources 按 study_status 统计），快照 payload 合并 study_stats——**学习状态变化驱动新快照**（活体：标 done → v3 快照 completed_resources=1，行为→画像→快照→趋势链路全通）；ProfileHistorySnapshot +`completed_resources`；/growth 学习证据卡显示「资源使用效果」与「错题复盘完成率」。验证：全量 **544 passed**（+12）；tsc 0 错；截图 ws-resources-live-bili.png。**维护风险**：wbi 算法 B 站可能调整，挂了自动降级不伤主链路。上一轮：W1 收口（资源详情页 + 学习状态回写）。
+最后更新：2026-06-13 · 本轮成果：**W3：/plan 真实路径节点操作 + /growth 双序列火花线**——①**真实学习路径接入**：新增 `learning/path_ops.py`（`load_active_path_items` 读 learning_goals→learning_paths→path_items；`update_item_status` 标完成 + 重算 goal progress；`insert_remedial_item` 错题补救节点插入 + sequence 重排；ACL 按 owner 校验，PG 不可用降级不假装成功）；`today.py` 吃真实 path_items（`_real_path_nodes`：done 照搬、第一个未完成→current、其余 next，progress 按 done/total 真算；空则回落合成示意，节点带 `item_id`）；新增 `api/routes/plan.py`（`PATCH /api/plan/items/{id}/status` + `POST /api/plan/items/insert`，403/404 异常转码）。②**前端节点操作**：PlanTimeline「标记完成」按钮（活体：点击→节点变已完成、下一节点自动 current、进度 0→33%）；错题页补救计划「插入当前学习路径」入口（活体：插入「异步状态」补救节点到路径第 2 位，3→4 节点）；新增 `lib/planApi.ts`。③**/growth 双序列火花线**：TrendSparkline 加 completed_resources 点线（accent 虚线，区间归一）+ 图例。④**修设计认知坑**：cookie 模式 `access_token` 空串，PlanTimeline 曾用 `Boolean(token && ...)` 致按钮永不显示——可用性判据改为只看 item_id（已记 memory，会反复踩）。验证：全量 **556 passed**（+12）；tsc 0 错；活体截图 ws-plan-marked-done / ws-growth-dual-trend.png。上一轮：W2 主体（B 站真实搜索 + 学习状态喂画像）。下一轮入口见 docs/23 §5（官方文档/公开课真实接入、PERF 序列）。
 
 ---
 
@@ -126,6 +126,13 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-4 ✅ · W3：/plan 真实路径节点操作 + /growth 双序列火花线（Claude 全栈轮）
+
+- **后端**：新增 `learning/path_ops.py`（读真实 path_items / 标完成重算 progress / 补救节点插入 + sequence 重排 / owner ACL / PG 降级）；`today.py` 接真实节点（`_real_path_nodes`，节点带 item_id，progress 真算，空回落合成）；新增 `api/routes/plan.py`（PATCH status + POST insert，注册进 app.py）。`tests/unit/learning/test_path_ops.py` 6 项 + `tests/unit/api/test_plan_api.py` 4 项 + today 真实节点映射 2 项。
+- **前端**：PlanTimeline「标记完成」按钮 + plan/page load 回调刷新；mistakes 补救计划「插入当前学习路径」入口（pathAnchor=当前节点 item_id）；`lib/planApi.ts`；GrowthTrendChart 双序列（progress 实线 + completed_resources 点线 + 图例）。
+- **修坑**：cookie 模式 access_token 空串，按钮可用性判据从 `Boolean(token && ...)` 改为只看 item_id（已记 memory）。
+- 活体：点标记完成→进度 0→33% + 节点状态联动；错题插入→路径 3→4 节点（异步状态补救节点入第 2 位）；/growth 双线火花图渲染。全量 556 passed。
 
 ### FS-3 ✅ · W2 主体：B 站真实搜索 + 行为闭环喂画像（Claude 全栈轮）
 

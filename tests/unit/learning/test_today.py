@@ -72,3 +72,40 @@ def test_learning_path_node_status_is_constrained():
     )
 
     assert node.status == "current"
+
+
+def test_real_path_items_replace_synthetic_nodes_and_progress():
+    from reflexlearn.learning.today import build_today_summary
+
+    summary = build_today_summary(
+        user_id="u1",
+        spaces=[{"space_id": "s1", "title": "机器学习", "status": "active"}],
+        resources=[],
+        mistakes=[],
+        profile={"goal": "线性回归入门", "progress": 0.0, "weak_points": ["数学推导"]},
+        path_items=[
+            {"item_id": 11, "concept": "建立直觉", "objective": "o1", "mastery_status": "done"},
+            {"item_id": 12, "concept": "数学推导", "objective": "o2", "mastery_status": "not_started"},
+            {"item_id": 13, "concept": "短练巩固", "objective": "o3", "mastery_status": "not_started"},
+        ],
+    )
+
+    statuses = [(n.item_id, n.status) for n in summary.path_nodes]
+    assert statuses == [(11, "done"), (12, "current"), (13, "next")]
+    assert summary.progress == round(1 / 3, 4)
+
+
+def test_empty_path_items_fall_back_to_synthetic_nodes():
+    from reflexlearn.learning.today import build_today_summary
+
+    summary = build_today_summary(
+        user_id="u1",
+        spaces=[],
+        resources=[],
+        mistakes=[],
+        profile={"goal": "g", "weak_points": ["w"]},
+        path_items=[],
+    )
+
+    assert len(summary.path_nodes) == 3
+    assert all(n.item_id is None for n in summary.path_nodes)

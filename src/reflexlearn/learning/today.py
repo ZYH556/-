@@ -55,6 +55,7 @@ class TodayLearningPathNode(BaseModel):
     title: str
     status: PathStatus
     summary: str
+    item_id: int | None = None  # 真实 path_item id；合成示意节点为 None
 
 
 class ProfileSignal(BaseModel):
@@ -91,6 +92,7 @@ def build_today_summary(
     resources: Sequence[Mapping[str, object]],
     mistakes: Sequence[Mapping[str, object]],
     profile: Mapping[str, object],
+    path_items: Sequence[Mapping[str, object]] | None = None,
     degraded: Sequence[str] | None = None,
 ) -> TodaySummary:
     active_space = _select_active_space(spaces)
@@ -99,6 +101,11 @@ def build_today_summary(
     first_weak = weak_points[0] if weak_points else "当前核心概念"
     next_topic = _next_practice_topic(goal, weak_points)
     progress = _float(profile.get("progress"), 0.0)
+
+    real_nodes = _real_path_nodes(path_items or [])
+    if real_nodes:
+        done = sum(1 for node in real_nodes if node.status == "done")
+        progress = round(done / len(real_nodes), 4)
 
     main_task = TodayTask(
         title=f"先补齐{first_weak}，再进入{next_topic}",
@@ -118,7 +125,7 @@ def build_today_summary(
         current_goal=goal,
         progress=progress,
         main_task=main_task,
-        path_nodes=_path_nodes(first_weak, next_topic),
+        path_nodes=real_nodes or _path_nodes(first_weak, next_topic),
         path_recommendation=f"先处理“{first_weak}”可以降低后续学习负担。",
         resources=mapped_resources,
         quick_actions=[
@@ -202,6 +209,35 @@ def _profile_signals(
         ProfileSignal(label="学习目标", value=goal),
         ProfileSignal(label="完成进度", value=f"{round(progress * 100)}%"),
     ]
+
+
+def _real_path_nodes(
+    path_items: Sequence[Mapping[str, object]],
+) -> list[TodayLearningPathNode]:
+    """真实 path_items → 路径节点：done 照搬，第一个未完成节点为 current，其余 next。"""
+    nodes: list[TodayLearningPathNode] = []
+    current_assigned = False
+    for item in path_items:
+        raw_status = _text(item.get("mastery_status"), "not_started")
+        if raw_status == "done":
+            status: PathStatus = "done"
+        elif not current_assigned:
+            status = "current"
+            current_assigned = True
+        else:
+            status = "next"
+        item_id = _int(item.get("item_id") or item.get("id"), 0)
+        title = _text(item.get("concept") or item.get("objective"), "学习节点")
+        nodes.append(
+            TodayLearningPathNode(
+                id=str(item_id or title),
+                title=title,
+                status=status,
+                summary=_text(item.get("objective") or item.get("rationale"), "推进这一步。"),
+                item_id=item_id or None,
+            )
+        )
+    return nodes
 
 
 def _path_nodes(first_weak: str, next_topic: str) -> list[TodayLearningPathNode]:

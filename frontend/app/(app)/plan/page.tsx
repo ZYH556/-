@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { PlanActionPanel } from "@/components/plan/PlanActionPanel";
 import { PlanTimeline } from "@/components/plan/PlanTimeline";
@@ -18,27 +18,24 @@ export default function PlanPage() {
   const [loading, setLoading] = useState(true);
   const today = remoteToday ?? fallbackToday;
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError("");
-    getTodaySummary(auth.access_token)
-      .then((data) => {
-        if (!cancelled) setRemoteToday(data);
-      })
-      .catch(() => {
-        if (!cancelled) {
+  const load = useCallback(
+    (silent = false) => {
+      if (!silent) setLoading(true);
+      setLoadError("");
+      return getTodaySummary(auth.access_token)
+        .then((data) => setRemoteToday(data))
+        .catch(() => {
           setRemoteToday(null);
           setLoadError("当前显示离线学习路径，稍后会自动恢复同步。");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [auth.access_token]);
+        })
+        .finally(() => setLoading(false));
+    },
+    [auth.access_token],
+  );
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-8">
@@ -91,6 +88,8 @@ export default function PlanPage() {
             nodes={today.pathNodes}
             progress={today.progress}
             recommendation={today.pathRecommendation}
+            token={auth.access_token}
+            onChanged={() => void load(true)}
           />
           <PlanActionPanel
             task={today.mainTask}

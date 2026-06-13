@@ -9,6 +9,7 @@ import type {
 } from "@/lib/types";
 
 export type MistakeAction = "reflect" | "plan" | "resources" | "review";
+export type InsertState = "idle" | "saving" | "saved" | null;
 
 interface MistakeDetailProps {
   item: MistakeItem;
@@ -16,6 +17,8 @@ interface MistakeDetailProps {
   plan: MistakePlan | null;
   resources: MistakeResource[];
   busy: MistakeAction | null;
+  insertState?: InsertState;
+  onInsertToPath?: () => void;
   onReflect: () => void;
   onPlan: () => void;
   onResources: () => void;
@@ -40,6 +43,8 @@ export function MistakeDetail({
   plan,
   resources,
   busy,
+  insertState = null,
+  onInsertToPath,
   onReflect,
   onPlan,
   onResources,
@@ -129,6 +134,26 @@ export function MistakeDetail({
               </li>
             ))}
           </ol>
+          {insertState !== null ? (
+            <div className="mt-4 border-t border-dashed border-[var(--ws-line-strong)] pt-3">
+              {insertState === "saved" ? (
+                <p className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--ws-accent)]">
+                  <Route size={14} aria-hidden />
+                  已插入当前学习路径，去「路径」页查看
+                </p>
+              ) : (
+                <WsButton
+                  size="sm"
+                  variant="outline"
+                  disabled={insertState === "saving"}
+                  onClick={onInsertToPath}
+                >
+                  <Route size={13} aria-hidden />
+                  {insertState === "saving" ? "插入中…" : "插入当前学习路径"}
+                </WsButton>
+              )}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

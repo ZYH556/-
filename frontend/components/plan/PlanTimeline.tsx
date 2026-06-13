@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { Check, CircleDot, MoveRight } from "lucide-react";
 
+import { updatePlanItemStatus } from "@/lib/planApi";
 import { WsCard } from "@/components/workspace";
 import type { TodayLearningPathNode } from "@/lib/types";
 
@@ -9,6 +11,8 @@ interface PlanTimelineProps {
   nodes: TodayLearningPathNode[];
   progress: number;
   recommendation: string;
+  token?: string;
+  onChanged?: () => void;
 }
 
 const STATUS_META: Record<
@@ -26,10 +30,25 @@ function StatusIcon({ status }: { status: TodayLearningPathNode["status"] }) {
   return <MoveRight size={15} aria-hidden />;
 }
 
-/* 学习路径 = 行程单（Itinerary）：铅字序号 + 状态印章 + 点线行程线，
-   与 /profile 的「学习档案」同一印刷语言。 */
-export function PlanTimeline({ nodes, progress, recommendation }: PlanTimelineProps) {
+/* 学习路径 = 行程单（Itinerary）：铅字序号 + 状态印章 + 点线行程线。
+   真实路径节点（item_id 非空）可直接标记完成——进度与画像随之联动。 */
+export function PlanTimeline({ nodes, progress, recommendation, token, onChanged }: PlanTimelineProps) {
   const percent = Math.min(100, Math.max(0, Math.round(progress * 100)));
+  const [savingId, setSavingId] = useState<number | null>(null);
+
+  const markDone = async (itemId: number) => {
+    // 凭据走 HttpOnly cookie，token 生产为空串，不作为可用性判据；apiJson 自带 cookie
+    if (savingId !== null) return;
+    setSavingId(itemId);
+    try {
+      await updatePlanItemStatus(token ?? "", itemId, "done");
+      onChanged?.();
+    } catch {
+      /* 失败保持原状态，用户可重试 */
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   return (
     <WsCard title="当前学习路径" eyebrow="Itinerary">
@@ -55,13 +74,13 @@ export function PlanTimeline({ nodes, progress, recommendation }: PlanTimelinePr
           const meta = STATUS_META[node.status];
           const isCurrent = node.status === "current";
           const isDone = node.status === "done";
+          const actionable = Boolean(node.item_id && !isDone);
           return (
             <li
               key={node.id}
               className="ws-rise relative grid grid-cols-[56px_1fr] gap-x-4 pb-7 last:pb-0 sm:grid-cols-[64px_1fr]"
               style={{ animationDelay: `${index * 80}ms` }}
             >
-              {/* 行程线：点线垂直贯穿，已完成段实线 */}
               {index < nodes.length - 1 ? (
                 <span
                   aria-hidden
@@ -108,6 +127,17 @@ export function PlanTimeline({ nodes, progress, recommendation }: PlanTimelinePr
                   <span className={`ws-stamp ${meta.stampClass}`}>{meta.label}</span>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{node.summary}</p>
+                {actionable ? (
+                  <button
+                    type="button"
+                    onClick={() => markDone(node.item_id as number)}
+                    disabled={savingId !== null}
+                    className="mt-3 inline-flex items-center gap-1.5 border border-[var(--ws-line-strong)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-[var(--ws-accent)] hover:text-[var(--ws-accent)] disabled:opacity-50"
+                  >
+                    <Check size={13} aria-hidden />
+                    {savingId === node.item_id ? "保存中…" : "标记完成"}
+                  </button>
+                ) : null}
               </article>
             </li>
           );
