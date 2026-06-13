@@ -54,9 +54,9 @@ export function GrowthSummary({ profile, trend, today, traceCount }: GrowthSumma
           {hasTrend && trend ? (
             <>
               <div className="flex items-baseline justify-between">
-                <p className="ws-eyebrow">Progress Curve</p>
+                <p className="ws-eyebrow">Progress Curve · 成长趋势</p>
                 <p className="text-xs text-slate-500">
-                  跨 {trendPoints} 份快照整体推进
+                  能力变化：跨 {trendPoints} 份快照推进
                   <span
                     className={`ws-serif ml-1.5 text-base ${
                       progressDelta > 0 ? "text-[var(--ws-accent)]" : "text-[var(--ws-ink)]"
@@ -72,7 +72,12 @@ export function GrowthSummary({ profile, trend, today, traceCount }: GrowthSumma
               </div>
             </>
           ) : (
-            <TrendPlaceholder count={trendPoints} />
+            <>
+              <p className="ws-eyebrow">Progress Curve · 成长趋势</p>
+              <div className="mt-3">
+                <TrendPlaceholder count={trendPoints} />
+              </div>
+            </>
           )}
         </div>
 

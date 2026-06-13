@@ -4,6 +4,7 @@ import { Send, X } from "lucide-react";
 
 import type { CompanionStatus } from "./companionState";
 import { STATUS_LABEL } from "./companionState";
+import { CompanionThinking } from "./CompanionThinking";
 
 export interface CompanionTurn {
   role: "user" | "companion";
@@ -76,7 +77,7 @@ export function CompanionPanel({
             </div>
           ))
         )}
-        {busy ? <div className="ws-skeleton h-10 w-2/3" /> : null}
+        {busy ? <CompanionThinking /> : null}
       </div>
 
       <div className="flex items-end gap-2 border-t border-[var(--ws-line)] bg-white p-3">

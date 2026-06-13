@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**Claude 全栈接管首轮：codex 交付验收 + 沉淀闭环三波推进**——①验收 codex 资源发现/画像历史交付并修 2 处（`/api/profile` 每次请求都写快照 → 同质快照灌满趋势窗口（LIMIT 20）致真趋势事实失效，改为**内容变化才写** + 3 单测活体复验；resources 页 fallback 薄弱点顿号串 flatMap 拆分）；②产品化小账：resourceView/SpaceResources 补 mindmap/debate 映射、SpaceHero 不再裸露机器 course id（slug 形态过滤）、空间资源平铺改按类型分组 `<details>` 折叠卷宗、114 条种子资源 SQL 补 meta provider/source_label/href（来源分类 UX 可见）；③/plan「行程单 Itinerary」+ /growth「成长对账单 Ledger」档案化（复用 ProfileGauges + 新增 `GrowthTrendChart.tsx`：进度火花线 stroke-dashoffset 手绘入场 / 知识点 leader-dots 对账 / 快照<2 诚实占位「收集中 N/2」；workspace.css +ws-leader）；④**候选资源一键保存闭环**（用户路线 #1）：`LearningAssetStore.save_resource`（candidate_id 幂等 + PG 降级内存，assets.py 295 行压线）+ `POST /api/resources/save` + 前端保存按钮/已入库态/onSaved 列表刷新，端到端活体 PG 落库（origin=discover, 114→115）；⑤修 `test_lora_export_api` 非 hermetic（Docker PG 可达时 `safe_pg_pool` 真连转读 PG、测试轨迹在内存 store → monkeypatch 强制 None；**隐患样板：路由层测试必须 mock safe_pg_pool，否则结果随 Docker 状态漂移**）；⑥新增 `docs/23-产品战略审视与商业落地路线.md`（主线校验/学习者/商业/压测/评审四视角不足/用户 9 方向编排为 W1-W4）。验证：全量 **526 passed, 2 warnings**；tsc 0 错；check_frontend_ia/check_profile_page ok；活体截图 ws-plan-itinerary / ws-growth-ledger-trend / ws-resources-save-flow.png。**协议变更：用户拍板 codex 暂停写码，Claude 承接全栈与前端创新，审查后可直接定计划实施；资源缺口（GPU/key/搜索配额）降级占位待补**。下一轮入口见 docs/23 §5。上一轮：资源发现后端 + 画像历史趋势后端落地（codex 后端轮）。
+最后更新：2026-06-13 · 本轮成果：**W1 收口：资源详情页 + 学习状态回写（行为回流第一块拼图）+ 种子接线 + 导师中间态**——①新增 `learning/resource_detail.py`（`ResourceDetail` 聚合：全文/学习状态/所属目标/同概念 open 错题数；`ResourceStudyStore` 内存兜底）+ `GET /api/resources/{id}/detail` + `PATCH /api/resources/{id}/status`（unread/in_progress/done/reviewed，Literal 422 校验；状态归属本人——visibility 传 private 强制 owner）+ `resources` 表迁移列 `study_status`/`status_updated_at`（migrate_db.sh 已跑）；②前端 `/resources/[id]` 档案化详情页（状态印章 + Resource Nº + Why 理由 + 四档状态点选即存 `ResourceStudyActions` + 关联目标/错题卡 + 全文）+ ResourceList 卡片接「查看详情」；活体：浏览器点「学习中」→ PG `study_status=in_progress` 落库（id=117/229），聚合验证 goal「机器学习入门到实战」+ 同概念错题 1 条；③`scripts/seed_product.sh` 接线 `seed_demo_cli`（codex 已写未接），灌 5 空间/24 资源/10 错题/3 画像，资源总量 139、provider 分布多样化（Bilibili 15/MIT OCW 4/scikit-learn 4…）；④牛牛面板等待中间态 `CompanionThinking`（时间驱动四阶段诚实文案 0/2.5/7/16s，role=status aria-live），活体抓到「正在理解你的问题…」+ 真 LLM 回答正常；⑤修 IA 锚点回归（重构丢了「推荐理由/成长趋势/能力变化」三词，加回组件）。**环境坑（已记 memory）**：dev 长跑后 rewrites 静默失效（/api/* 全 404 进 _not-found，疑 stash 触碰 next.config 触发内部重载），重启 dev 即愈。验证：全量 **532 passed**（+6 详情 API 测试）；tsc 0 错；check_frontend_ia/profile/today 全 ok；截图 ws-resource-detail.png / ws-companion-thinking-live.png。上一轮：Claude 全栈接管首轮（验收 + 三波）。
 
 ---
 
@@ -126,6 +126,23 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-2 ✅ · W1 收口：资源详情页 + 学习状态回写 + 种子接线 + 导师中间态（Claude 全栈轮）
+
+**核心**：行为回流第一块拼图——资源有了独立详情页和可回写的学习状态（unread/in_progress/done/reviewed），落 `resources.study_status` 列（可统计、后续喂画像 progress 重算）。
+
+- 后端：新增 `learning/resource_detail.py`（聚合 + `ResourceStudyStore` 内存兜底）；`workspace.py` +`GET /resources/{id}/detail`、`PATCH /resources/{id}/status`（Literal 422；状态写权限强制 owner）；`init_db.py` resources +`study_status`/`status_updated_at`；测试 `tests/unit/api/test_resource_detail_api.py` 6 项（401/404/403/降级/回写往返/非法值）。
+- 前端：`/resources/[id]/page.tsx`（223 行，档案化：状态印章 + Resource Nº + Why + `ResourceStudyActions` 四档点选即存 + 关联目标/错题卡 + 全文）；ResourceList 接「查看详情」；`lib/resourceDetailApi.ts`。
+- 种子：`scripts/seed_product.sh` 接线 codex 写好未引用的 `seed_demo_cli`，灌 24 资源（带 provider/href/embed_url meta）→ 总量 139。
+- 中间态：`CompanionThinking.tsx` 时间驱动四阶段文案（0/2.5/7/16s），替换牛牛面板 busy 骨架。
+- 回归修复：IA 锚点词「推荐理由/成长趋势/能力变化」在档案化重构中丢失，加回组件。
+- 环境坑：dev 长跑后 rewrites 静默失效（/api/* 404 进 _not-found），重启 dev 即愈（已记 memory）。
+
+**验证**：全量 532 passed；tsc 0 错；check_frontend_ia/profile/today ok；活体=浏览器状态点选落 PG（id=117 in_progress）+ detail 聚合（goal/错题数/全文）+ 中间态文案抓取；截图 ws-resource-detail.png。
+
+### FS-1 ✅ · Claude 全栈接管首轮：codex 验收 + 沉淀闭环三波（详见 git a50b516 与 docs/23）
+
+①验收 codex 资源发现/画像历史：修**快照同质堆积**（每次 GET /api/profile 都写 → 内容变化才写，+3 测试）与 fallback 顿号串；②小账：mindmap/debate 映射、course id 裸露过滤、空间资源分组折叠、种子 meta 补 provider；③/plan「行程单」+ /growth「成长对账单」档案化（`GrowthTrendChart.tsx`：火花线/leader-dots 对账/快照<2 诚实占位；+ws-leader token）；④候选资源一键保存闭环（`save_resource` candidate_id 幂等 + `POST /resources/save` + 前端已入库态）；⑤修 `test_lora_export_api` 非 hermetic（路由测试必须 mock safe_pg_pool）；⑥`docs/23` 战略审视（四视角 + W1-W4 路线）。验证：526 passed；活体截图 ws-plan-itinerary / ws-growth-ledger-trend / ws-resources-save-flow.png。**协议**：codex 暂停写码，Claude 全栈 + 直接定计划实施。
 
 ### H-Review ✅ · H1-H4 验收修复 + /profile「学习档案」视觉升级（Claude 前端轮）
 

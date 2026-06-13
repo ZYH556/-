@@ -9,6 +9,12 @@ from reflexlearn.api.deps import get_current_user
 from reflexlearn.api.service_deps import safe_pg_pool
 from reflexlearn.common.auth import CurrentUser
 from reflexlearn.learning.assets import LearningAssetStore, LearningResource
+from reflexlearn.learning.resource_detail import (
+    ResourceStudyStore,
+    StudyStatus,
+    load_resource_detail,
+    update_study_status,
+)
 from reflexlearn.learning.resource_discovery import (
     DiscoverResourceRequest,
     build_resource_discovery,
@@ -17,10 +23,15 @@ from reflexlearn.learning.spaces import get_space_store
 
 router = APIRouter()
 _store = LearningAssetStore()
+_study_store = ResourceStudyStore()
 
 
 def get_asset_store() -> LearningAssetStore:
     return _store
+
+
+def get_study_store() -> ResourceStudyStore:
+    return _study_store
 
 
 def set_asset_store_for_tests(store: LearningAssetStore) -> None:
@@ -29,8 +40,9 @@ def set_asset_store_for_tests(store: LearningAssetStore) -> None:
 
 
 def reset_asset_store_for_tests() -> None:
-    global _store
+    global _store, _study_store
     _store = LearningAssetStore()
+    _study_store = ResourceStudyStore()
 
 
 class CreateSpaceRequest(BaseModel):
@@ -175,6 +187,59 @@ async def get_resource(resource_id: str, user: CurrentUser = Depends(get_current
         visibility=item.visibility,
     )
     return item
+
+
+@router.get("/resources/{resource_id}/detail")
+async def get_resource_detail(
+    resource_id: str, user: CurrentUser = Depends(get_current_user)
+):
+    pg_pool = await safe_pg_pool()
+    item = await get_asset_store().get_resource(resource_id, pg_pool=pg_pool)
+    if item is None:
+        return JSONResponse(status_code=404, content={"error": "resource_not_found"})
+    assert_object_access(
+        user=user,
+        owner_user_id=item.user_id,
+        tenant_id=item.tenant_id,
+        visibility=item.visibility,
+    )
+    return await load_resource_detail(
+        item,
+        user_id=user.user_id,
+        tenant_id=user.tenant_id,
+        pg_pool=pg_pool,
+        study_store=get_study_store(),
+    )
+
+
+class UpdateStudyStatusRequest(BaseModel):
+    status: StudyStatus
+
+
+@router.patch("/resources/{resource_id}/status")
+async def patch_resource_status(
+    resource_id: str,
+    req: UpdateStudyStatusRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    pg_pool = await safe_pg_pool()
+    item = await get_asset_store().get_resource(resource_id, pg_pool=pg_pool)
+    if item is None:
+        return JSONResponse(status_code=404, content={"error": "resource_not_found"})
+    # 学习状态归属本人：visibility 传 private 强制 owner 校验，公共资源也只能写自己的状态
+    assert_object_access(
+        user=user,
+        owner_user_id=item.user_id,
+        tenant_id=item.tenant_id,
+        visibility="private",
+    )
+    return await update_study_status(
+        resource_id,
+        req.status,
+        user_id=user.user_id,
+        pg_pool=pg_pool,
+        study_store=get_study_store(),
+    )
 
 
 @router.get("/knowledge/documents")

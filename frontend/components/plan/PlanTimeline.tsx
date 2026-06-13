@@ -116,7 +116,7 @@ export function PlanTimeline({ nodes, progress, recommendation }: PlanTimelinePr
 
       <p className="mt-7 border-t border-dashed border-[var(--ws-line-strong)] pt-4 text-sm leading-6 text-slate-600">
         <span className="ws-eyebrow mr-2">Why</span>
-        {recommendation}
+        推荐理由：{recommendation}
       </p>
     </WsCard>
   );

@@ -21,7 +21,6 @@ export function ResourceList({ resources }: ResourceListProps) {
 function ResourceCard({ item }: { item: LearningResource }) {
   const view = viewForResource(item.type);
   const Icon = view.icon;
-  const href = item.href || "/resources";
   const source = item.source_label || view.label;
 
   return (
@@ -38,7 +37,12 @@ function ResourceCard({ item }: { item: LearningResource }) {
             {item.embed_url ? <span>可站内播放</span> : null}
           </div>
           <h3 className="mt-2 text-base font-medium text-[var(--ws-ink)]">
-            {item.title || view.label}
+            <Link
+              href={`/resources/${encodeURIComponent(item.resource_id)}`}
+              className="transition-colors hover:text-[var(--ws-accent)]"
+            >
+              {item.title || view.label}
+            </Link>
           </h3>
           <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">
             {item.reason || item.content_preview || "与当前学习目标相关。"}
@@ -50,25 +54,25 @@ function ResourceCard({ item }: { item: LearningResource }) {
           ) : null}
         </div>
       </div>
-      <ResourceAction href={href} label={view.action} />
+      <div className="mt-5 flex flex-wrap items-center gap-4">
+        <Link
+          href={`/resources/${encodeURIComponent(item.resource_id)}`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--ws-accent)] hover:text-[var(--ws-ink)]"
+        >
+          查看详情
+        </Link>
+        {isExternalHref(item.href) ? (
+          <a
+            href={item.href}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-[var(--ws-ink)]"
+          >
+            打开来源
+            <ExternalLink size={14} aria-hidden />
+          </a>
+        ) : null}
+      </div>
     </article>
-  );
-}
-
-function ResourceAction({ href, label }: { href: string; label: string }) {
-  const className =
-    "mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--ws-accent)] hover:text-[var(--ws-ink)]";
-  if (isExternalHref(href)) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer" className={className}>
-        {label}
-        <ExternalLink size={14} aria-hidden />
-      </a>
-    );
-  }
-  return (
-    <Link href={href} className={className}>
-      {label}
-    </Link>
   );
 }
