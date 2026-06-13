@@ -113,3 +113,35 @@ async def test_save_profile_snapshot_writes_first_snapshot():
     await save_profile_snapshot("student-a", {"goal": "g", "progress": 0.1}, pool)
 
     assert len(pool.conn.inserts) == 1
+
+
+def test_snapshot_row_parses_study_stats_into_completed_resources():
+    from reflexlearn.learning.profile_history import _snapshot_from_row
+
+    snapshot = _snapshot_from_row(
+        {
+            "version": 3,
+            "created_at": 1000.0,
+            "dimensions": json.dumps(
+                {
+                    "goal": "线性回归入门",
+                    "progress": 0.2,
+                    "study_stats": {"total": 10, "in_progress": 2, "done": 3, "reviewed": 1},
+                },
+                ensure_ascii=False,
+            ),
+        }
+    )
+
+    assert snapshot.completed_resources == 4
+    assert snapshot.progress == 0.2
+
+
+def test_snapshot_row_defaults_completed_resources_when_stats_missing():
+    from reflexlearn.learning.profile_history import _snapshot_from_row
+
+    snapshot = _snapshot_from_row(
+        {"version": 1, "created_at": 1000.0, "dimensions": json.dumps({"goal": "g"})}
+    )
+
+    assert snapshot.completed_resources == 0

@@ -16,6 +16,7 @@ class ProfileHistorySnapshot(BaseModel):
     progress: float = 0.0
     weak_points: list[str] = Field(default_factory=list)
     knowledge_base: dict[str, float] = Field(default_factory=dict)
+    completed_resources: int = 0  # done + reviewed，来自快照内嵌 study_stats
 
 
 class ProfileTrend(BaseModel):
@@ -126,12 +127,17 @@ def _snapshot_from_row(row) -> ProfileHistorySnapshot:
     dimensions = raw if isinstance(raw, dict) else json.loads(raw or "{}")
     knowledge_base = dimensions.get("knowledge_base", {})
     weak_points = dimensions.get("weak_points", [])
+    study_stats = dimensions.get("study_stats", {})
+    completed = 0
+    if isinstance(study_stats, dict):
+        completed = int(study_stats.get("done", 0) or 0) + int(study_stats.get("reviewed", 0) or 0)
     return ProfileHistorySnapshot(
         version=int(row["version"] or 0),
         created_at=float(row["created_at"] or 0.0),
         goal=str(dimensions.get("goal", "")),
         progress=_float(dimensions.get("progress"), 0.0),
         weak_points=[str(item) for item in weak_points] if isinstance(weak_points, list) else [],
+        completed_resources=completed,
         knowledge_base={
             str(key): float(value)
             for key, value in knowledge_base.items()

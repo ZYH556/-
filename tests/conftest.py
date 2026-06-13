@@ -15,10 +15,13 @@ def _hermetic_guard(monkeypatch):
       为顶层 import，须各自命名空间拦）。否则单测会连本机真实 qdrant，且 AsyncQdrantClient 单例
       跨 pytest-asyncio 事件循环会卡死。manager.recall / critic._persist_reflection 对 get_qdrant
       抛已 try/except 降级，故拦后 e2e 优雅退化为空召回 / 跳过写 / retrieve 退 mock，零回归。
+    - bilibili：拦 BiliSearchClient.search_videos（返回 None = 走静态候选），否则 discover 路由
+      测试会真连 B 站外站。需要测真实合并逻辑的测试自行 monkeypatch 覆盖。
     需要真实行为的测试自行 monkeypatch 覆盖（embed_query / _get_reranker / db.get_qdrant 等）。
     """
     import reflexlearn.common.db as db
     import reflexlearn.common.embedding as emb
+    import reflexlearn.learning.bilibili_search as bili
     import reflexlearn.memory.manager as mgr
     import reflexlearn.orchestration.nodes.reflection.critic as critic
     import reflexlearn.rag.ranking.rerank as rr
@@ -32,8 +35,15 @@ def _hermetic_guard(monkeypatch):
     def _blocked_qdrant(*args, **kwargs):
         raise RuntimeError("real qdrant disabled in unit tests")
 
+    async def _blocked_bili(*args, **kwargs):
+        return None
+
+    if not hasattr(bili, "_original_search_videos"):
+        bili._original_search_videos = bili.BiliSearchClient.search_videos
+
     monkeypatch.setattr(emb, "_get_model", _blocked_emb)
     monkeypatch.setattr(rr, "_get_reranker", _blocked_rr)
     monkeypatch.setattr(db, "get_qdrant", _blocked_qdrant)
     monkeypatch.setattr(mgr, "get_qdrant", _blocked_qdrant)
     monkeypatch.setattr(critic, "get_qdrant", _blocked_qdrant)
+    monkeypatch.setattr(bili.BiliSearchClient, "search_videos", _blocked_bili)

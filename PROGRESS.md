@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**W1 收口：资源详情页 + 学习状态回写（行为回流第一块拼图）+ 种子接线 + 导师中间态**——①新增 `learning/resource_detail.py`（`ResourceDetail` 聚合：全文/学习状态/所属目标/同概念 open 错题数；`ResourceStudyStore` 内存兜底）+ `GET /api/resources/{id}/detail` + `PATCH /api/resources/{id}/status`（unread/in_progress/done/reviewed，Literal 422 校验；状态归属本人——visibility 传 private 强制 owner）+ `resources` 表迁移列 `study_status`/`status_updated_at`（migrate_db.sh 已跑）；②前端 `/resources/[id]` 档案化详情页（状态印章 + Resource Nº + Why 理由 + 四档状态点选即存 `ResourceStudyActions` + 关联目标/错题卡 + 全文）+ ResourceList 卡片接「查看详情」；活体：浏览器点「学习中」→ PG `study_status=in_progress` 落库（id=117/229），聚合验证 goal「机器学习入门到实战」+ 同概念错题 1 条；③`scripts/seed_product.sh` 接线 `seed_demo_cli`（codex 已写未接），灌 5 空间/24 资源/10 错题/3 画像，资源总量 139、provider 分布多样化（Bilibili 15/MIT OCW 4/scikit-learn 4…）；④牛牛面板等待中间态 `CompanionThinking`（时间驱动四阶段诚实文案 0/2.5/7/16s，role=status aria-live），活体抓到「正在理解你的问题…」+ 真 LLM 回答正常；⑤修 IA 锚点回归（重构丢了「推荐理由/成长趋势/能力变化」三词，加回组件）。**环境坑（已记 memory）**：dev 长跑后 rewrites 静默失效（/api/* 全 404 进 _not-found，疑 stash 触碰 next.config 触发内部重载），重启 dev 即愈。验证：全量 **532 passed**（+6 详情 API 测试）；tsc 0 错；check_frontend_ia/profile/today 全 ok；截图 ws-resource-detail.png / ws-companion-thinking-live.png。上一轮：Claude 全栈接管首轮（验收 + 三波）。
+最后更新：2026-06-13 · 本轮成果：**W2 主体：B 站真实搜索接入 + 行为闭环喂画像**——①**B 站 wbi 签名搜索落地**（spike 验证 → 生产实现 `learning/bilibili_search.py`：nav 取 key + 固定置换表 mixin + MD5 签名、buvid cookie、关键词缓存 1h、滑窗限频 10/min、`trust_env=False` 防本机死代理、**任何失败返 None 回落静态候选**）；discover 路由合并真实条目（`merge_live_videos` 纯函数：替换静态 bilibili 候选、保留其他 provider、degraded 标注 `bilibili:live`/`bilibili:fallback_static`）；搜索词 `discovery_query`=goal+薄弱点组合（单独薄弱点「数学推导」会搜出专升本数学——已实证修正）；conftest **类级守卫拦 `BiliSearchClient.search_videos`**（hermetic，原方法存 `_original_search_videos` 供测试），config +`enable_bilibili_search`/`bili_search_timeout_s`；活体：discover 返回「线性回归与非线性回归！最小二乘法！保姆级讲解！」等 3 条真实条目（bvid 链接+真实时长），浏览器保存真实视频落库（id=254，bvid 作幂等键）。②**行为闭环**：ProfileSummary +`study_stats`（resources 按 study_status 统计），快照 payload 合并 study_stats——**学习状态变化驱动新快照**（活体：标 done → v3 快照 completed_resources=1，行为→画像→快照→趋势链路全通）；ProfileHistorySnapshot +`completed_resources`；/growth 学习证据卡显示「资源使用效果」与「错题复盘完成率」。验证：全量 **544 passed**（+12）；tsc 0 错；截图 ws-resources-live-bili.png。**维护风险**：wbi 算法 B 站可能调整，挂了自动降级不伤主链路。上一轮：W1 收口（资源详情页 + 学习状态回写）。
 
 ---
 
@@ -126,6 +126,12 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-3 ✅ · W2 主体：B 站真实搜索 + 行为闭环喂画像（Claude 全栈轮）
+
+- **B 站搜索**：新增 `learning/bilibili_search.py`（wbi 签名/缓存/限频/降级，`trust_env=False`）；`resource_discovery.py` +`discovery_query`（goal+薄弱点组合词）/`merge_live_videos`（纯函数合并）；discover 路由接入（config 开关）；conftest 类级 hermetic 守卫；`tests/unit/learning/test_bilibili_search.py` 10 项。活体：真实条目 3 条 + 浏览器保存 bvid 落库。维护风险：wbi 算法变更→自动降级静态候选。
+- **行为闭环**：`profile.py` +StudyStats 统计 + 快照 payload 合并（状态变化驱动新快照）；`profile_history.py` +completed_resources；GrowthEvidence +资源使用效果/错题复盘率。活体：标 done → v3 快照 completed_resources=1。
+- 验证：全量 544 passed；tsc 0 错；截图 ws-resources-live-bili.png。
 
 ### FS-2 ✅ · W1 收口：资源详情页 + 学习状态回写 + 种子接线 + 导师中间态（Claude 全栈轮）
 

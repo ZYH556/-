@@ -240,6 +240,13 @@ export interface MistakeStats {
   top_concepts: string[];
 }
 
+export interface StudyStats {
+  total: number;
+  in_progress: number;
+  done: number;
+  reviewed: number;
+}
+
 export interface ProfileSummary {
   user_id: string;
   goal: string;
@@ -249,6 +256,7 @@ export interface ProfileSummary {
   preferences: Record<string, unknown>;
   progress: number;
   mistake_stats: MistakeStats;
+  study_stats: StudyStats;
   spaces_count: number;
   resources_count: number;
   source: string;
@@ -262,6 +270,7 @@ export interface ProfileHistorySnapshot {
   progress: number;
   weak_points: string[];
   knowledge_base: Record<string, number>;
+  completed_resources: number;
 }
 
 export interface ProfileTrend {

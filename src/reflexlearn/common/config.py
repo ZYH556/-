@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     # —— W3-D: 上传隔离 / 签名 URL ——
     enable_upload_quarantine: bool = True  # 上传先入隔离区扫描，拒绝可执行/危险 HTML 内容
     signed_url_ttl_s: int = 300            # 签名 URL 有效期秒数（短 TTL）
+    # —— W2: 资源发现真实搜索 ——
+    enable_bilibili_search: bool = True    # B 站 wbi 签名搜索；失败/限频自动回落静态候选
+    bili_search_timeout_s: float = 6.0     # 单次外呼超时；discover 不被外站拖死
 
     cors_allow_origins: str = (
         "http://localhost:3000,http://localhost:3001,"

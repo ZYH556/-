@@ -161,6 +161,62 @@ def _topic(goal: str, weak_points: list[str]) -> str:
     return weak_points[0] if weak_points else goal
 
 
+def discovery_topic(req: DiscoverResourceRequest) -> str:
+    """对外暴露选题口径：优先第一个薄弱点，否则目标本身（与静态候选一致）。"""
+    return _topic(req.goal, req.weak_points[:4])
+
+
+def discovery_query(req: DiscoverResourceRequest) -> str:
+    """真实搜索关键词：goal + 选题组合，避免单独薄弱点（如「数学推导」）太泛跑题。"""
+    topic = discovery_topic(req)
+    if topic and topic != req.goal:
+        return f"{req.goal} {topic}"
+    return req.goal
+
+
+def merge_live_videos(
+    result: ResourceDiscoveryResult,
+    videos: list,
+    req: DiscoverResourceRequest,
+) -> ResourceDiscoveryResult:
+    """用真实 B 站搜索条目替换静态 bilibili 候选；其他 provider 候选保留。
+
+    videos: list[BiliVideo]（鸭子类型：title/bvid/author/duration_minutes）。
+    纯函数，无 IO——真实搜索失败时调用方直接跳过本函数走静态候选。
+    """
+    if not videos:
+        return result
+    topic = discovery_topic(req)
+    weak_points = req.weak_points[:4]
+    kept = [item for item in result.items if not item.resource_id.startswith("candidate-bilibili-")]
+    live: list[ResourceCandidate] = []
+    for index, video in enumerate(videos):
+        author = f"UP 主 {video.author} · " if video.author else ""
+        live.append(
+            ResourceCandidate(
+                resource_id=f"candidate-bilibili-{video.bvid}",
+                type="external_video",
+                title=video.title,
+                content_preview=(video.description or f"{author}来自 B 站的真实搜索结果。")[:160],
+                provider="Bilibili",
+                source_label="B 站视频",
+                href=f"https://www.bilibili.com/video/{video.bvid}",
+                embed_url=f"https://player.bilibili.com/player.html?bvid={video.bvid}",
+                estimated_minutes=video.duration_minutes,
+                reason=f"{author}围绕「{topic}」的真实检索结果，先建立直观理解再回到练习。",
+                matched_goal=req.goal,
+                matched_weak_points=weak_points,
+                rank_score=round(0.95 - index * 0.03, 4),
+            )
+        )
+    ranked = sorted([*live, *kept], key=lambda item: item.rank_score, reverse=True)
+    return ResourceDiscoveryResult(
+        items=ranked[: req.limit],
+        query=result.query,
+        degraded=[*result.degraded, "bilibili:live"],
+    )
+
+
 def _slug(*parts: str) -> str:
     raw = "-".join(parts).lower()
     chars = [char if char.isalnum() else "-" for char in raw]

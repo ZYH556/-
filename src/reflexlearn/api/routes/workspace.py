@@ -8,7 +8,9 @@ from reflexlearn.api.acl import assert_object_access
 from reflexlearn.api.deps import get_current_user
 from reflexlearn.api.service_deps import safe_pg_pool
 from reflexlearn.common.auth import CurrentUser
+from reflexlearn.common.config import get_settings
 from reflexlearn.learning.assets import LearningAssetStore, LearningResource
+from reflexlearn.learning.bilibili_search import get_bili_client
 from reflexlearn.learning.resource_detail import (
     ResourceStudyStore,
     StudyStatus,
@@ -16,8 +18,11 @@ from reflexlearn.learning.resource_detail import (
     update_study_status,
 )
 from reflexlearn.learning.resource_discovery import (
+    DEFAULT_PROVIDERS,
     DiscoverResourceRequest,
     build_resource_discovery,
+    discovery_query,
+    merge_live_videos,
 )
 from reflexlearn.learning.spaces import get_space_store
 
@@ -117,7 +122,15 @@ async def discover_resources(
     req: DiscoverResourceRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
-    return build_resource_discovery(req)
+    result = build_resource_discovery(req)
+    providers = req.providers or list(DEFAULT_PROVIDERS)
+    if get_settings().enable_bilibili_search and "bilibili" in providers:
+        videos = await get_bili_client().search_videos(discovery_query(req), limit=3)
+        if videos:
+            result = merge_live_videos(result, videos, req)
+        else:
+            result.degraded.append("bilibili:fallback_static")
+    return result
 
 
 class SaveResourceRequest(BaseModel):

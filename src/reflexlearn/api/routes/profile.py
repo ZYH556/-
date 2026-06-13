@@ -32,6 +32,15 @@ class MistakeStats(BaseModel):
     top_concepts: list[str] = Field(default_factory=list)
 
 
+class StudyStats(BaseModel):
+    """资源学习状态统计：行为回流的画像侧出口（喂 /growth 与快照趋势）。"""
+
+    total: int = 0
+    in_progress: int = 0
+    done: int = 0
+    reviewed: int = 0
+
+
 class ProfileSummary(BaseModel):
     user_id: str
     goal: str = ""
@@ -41,6 +50,7 @@ class ProfileSummary(BaseModel):
     preferences: dict = Field(default_factory=dict)
     progress: float = 0.0
     mistake_stats: MistakeStats = Field(default_factory=MistakeStats)
+    study_stats: StudyStats = Field(default_factory=StudyStats)
     spaces_count: int = 0
     resources_count: int = 0
     source: str = "empty"
@@ -83,7 +93,10 @@ async def get_profile(user: CurrentUser = Depends(get_current_user)) -> ProfileS
     if pg_pool is not None:
         await _attach_pg_stats(summary, user, pg_pool)
         if profile:
-            await save_profile_snapshot(user.user_id, profile, pg_pool)
+            # 快照内容 = 画像 + 行为统计：学习状态变化也会推动新快照（趋势数据源）
+            snapshot_payload = dict(profile)
+            snapshot_payload["study_stats"] = summary.study_stats.model_dump()
+            await save_profile_snapshot(user.user_id, snapshot_payload, pg_pool)
     else:
         summary.degraded.append("pg:unavailable")
     return summary
@@ -137,6 +150,15 @@ async def _attach_pg_stats(summary: ProfileSummary, user: CurrentUser, pg_pool) 
                 user.user_id,
                 user.tenant_id,
             )
+            study_rows = await conn.fetch(
+                """
+                SELECT COALESCE(study_status, 'unread') AS study_status, COUNT(*) AS n
+                FROM resources WHERE user_id=$1 AND tenant_id=$2
+                GROUP BY 1
+                """,
+                user.user_id,
+                user.tenant_id,
+            )
         concept_count: dict[str, int] = {}
         open_count = 0
         for row in mistake_rows:
@@ -154,6 +176,13 @@ async def _attach_pg_stats(summary: ProfileSummary, user: CurrentUser, pg_pool) 
         )
         summary.spaces_count = int(spaces or 0)
         summary.resources_count = int(resources or 0)
+        counts = {row["study_status"]: int(row["n"]) for row in study_rows}
+        summary.study_stats = StudyStats(
+            total=sum(counts.values()),
+            in_progress=counts.get("in_progress", 0),
+            done=counts.get("done", 0),
+            reviewed=counts.get("reviewed", 0),
+        )
     except Exception as exc:
         logger.info("profile stats degraded: %s", exc)
         summary.degraded.append("pg:stats_unavailable")

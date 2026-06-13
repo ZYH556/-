@@ -1,4 +1,4 @@
-import { AlertTriangle, BookOpenText, CheckCircle2, Clock3, GitBranch } from "lucide-react";
+import { AlertTriangle, BookOpenText, CheckCircle2, Clock3, GitBranch, NotebookPen } from "lucide-react";
 
 import { Tag, WsCard } from "@/components/workspace";
 import { MasteryLedger } from "@/components/growth/GrowthTrendChart";
@@ -84,8 +84,13 @@ export function GrowthEvidence({ profile, trend, today, traces, reviews }: Growt
           />
           <EvidenceLine
             icon={CheckCircle2}
-            label="资源使用"
-            value={`${today.resources.length} 个资源正在支撑这条路径`}
+            label="资源使用效果"
+            value={studyEffect(profile)}
+          />
+          <EvidenceLine
+            icon={NotebookPen}
+            label="错题复盘完成率"
+            value={mistakeReviewRate(profile)}
           />
           <EvidenceLine
             icon={GitBranch}
@@ -100,6 +105,23 @@ export function GrowthEvidence({ profile, trend, today, traces, reviews }: Growt
       </WsCard>
     </div>
   );
+}
+
+/* 行为统计：来自资源详情页的学习状态点选（unread/in_progress/done/reviewed） */
+function studyEffect(profile: ProfileSummary | null): string {
+  const stats = profile?.study_stats;
+  if (!stats || stats.in_progress + stats.done + stats.reviewed === 0) {
+    return "在资源详情页标记学习状态后，这里会显示使用效果。";
+  }
+  return `学习中 ${stats.in_progress} · 已完成 ${stats.done} · 已复盘 ${stats.reviewed}`;
+}
+
+function mistakeReviewRate(profile: ProfileSummary | null): string {
+  const stats = profile?.mistake_stats;
+  if (!stats || stats.total === 0) return "暂无错题记录";
+  const reviewed = stats.total - stats.open;
+  const rate = Math.round((reviewed / stats.total) * 100);
+  return `${reviewed}/${stats.total}（${rate}%）已进入复盘`;
 }
 
 function EvidenceLine({
