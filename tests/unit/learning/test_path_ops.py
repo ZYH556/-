@@ -17,6 +17,11 @@ class _FakeConn:
             {"id": 1, "sequence": 1, "concept": "建立直觉", "objective": "o1", "rationale": "r1", "mastery_status": "done"},
             {"id": 2, "sequence": 2, "concept": "数学推导", "objective": "o2", "rationale": "r2", "mastery_status": "not_started"},
         ]
+        self.resource_rows = [
+            {"resource_id": "11", "concept": "数学推导", "type": "doc", "title": "推导讲解", "created_at": 2},
+            {"resource_id": "12", "concept": "数学推导", "type": "quiz", "title": "推导练习", "created_at": 1},
+            {"resource_id": "13", "concept": "数学推导", "type": "video", "title": "推导视频", "created_at": 0},
+        ]
 
     async def fetchval(self, query, *args):
         if "FROM learning_paths lp" in query:
@@ -38,6 +43,8 @@ class _FakeConn:
         return None
 
     async def fetch(self, query, *args):
+        if "FROM resources" in query:
+            return self.resource_rows
         return self.items
 
     async def execute(self, query, *args):
@@ -69,6 +76,15 @@ async def test_load_active_path_items_maps_rows():
 
     assert [i.item_id for i in items] == [1, 2]
     assert items[0].mastery_status == "done"
+
+
+async def test_load_active_path_items_attaches_resources_by_concept():
+    items = await load_active_path_items(user_id="u", tenant_id="t", pg_pool=_FakePool())
+
+    # 「建立直觉」无匹配资源；「数学推导」匹配 3 个但每节点最多 2 个
+    assert items[0].resources == []
+    assert [r.resource_id for r in items[1].resources] == ["11", "12"]
+    assert items[1].resources[0].title == "推导讲解"
 
 
 async def test_load_active_path_items_empty_without_pg():

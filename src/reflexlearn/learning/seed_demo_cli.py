@@ -28,7 +28,14 @@ async def seed_learning_product(*, user_id: str, tenant_id: str) -> int:
         async with conn.transaction():
             await _clean(conn, user_id=user_id, tenant_id=tenant_id)
             await _upsert_users(conn, seed.profiles, tenant_id)
-            goal_ids = await _insert_spaces(conn, seed.spaces)
+            # space → 真实资源概念映射：让路径节点 concept 与资源 concept 对齐，
+            # 使「节点关联资源」（path_ops 按 concept 匹配）能命中。
+            space_concepts: dict[str, list[str]] = {}
+            for res in seed.resources:
+                bucket = space_concepts.setdefault(res.space_id, [])
+                if res.concept and res.concept not in bucket:
+                    bucket.append(res.concept)
+            goal_ids = await _insert_spaces(conn, seed.spaces, space_concepts)
             await _insert_profiles(conn, seed.profiles)
             await _insert_resources(conn, seed, goal_ids)
             await _insert_mistakes(conn, seed)
@@ -97,7 +104,11 @@ async def _upsert_users(
         )
 
 
-async def _insert_spaces(conn: asyncpg.Connection, spaces: list[DemoSpace]) -> dict[str, int]:
+async def _insert_spaces(
+    conn: asyncpg.Connection,
+    spaces: list[DemoSpace],
+    space_concepts: dict[str, list[str]],
+) -> dict[str, int]:
     goal_ids: dict[str, int] = {}
     for space in spaces:
         row = await conn.fetchrow(
@@ -113,11 +124,16 @@ async def _insert_spaces(conn: asyncpg.Connection, spaces: list[DemoSpace]) -> d
             space.progress,
         )
         goal_ids[space.space_id] = int(row["id"])
-        await _insert_path(conn, space, int(row["id"]))
+        await _insert_path(conn, space, int(row["id"]), space_concepts.get(space.space_id, []))
     return goal_ids
 
 
-async def _insert_path(conn: asyncpg.Connection, space: DemoSpace, goal_id: int) -> None:
+async def _insert_path(
+    conn: asyncpg.Connection,
+    space: DemoSpace,
+    goal_id: int,
+    concepts: list[str],
+) -> None:
     path = await conn.fetchrow(
         """
         INSERT INTO learning_paths (user_id, tenant_id, goal_id, summary, strategy)
@@ -128,7 +144,10 @@ async def _insert_path(conn: asyncpg.Connection, space: DemoSpace, goal_id: int)
         goal_id,
         f"围绕“{space.title}”按薄弱点优先推进。",
     )
-    for idx, concept in enumerate(["建立直觉", "补齐卡点", "短练巩固"], start=1):
+    # 路径三步用该 space 真实资源概念（对齐资源匹配）；不足时补教学法泛步
+    fallback = ["建立直觉", "补齐卡点", "短练巩固"]
+    steps = (concepts[:3] + fallback)[:3] if concepts else fallback
+    for idx, concept in enumerate(steps, start=1):
         await conn.execute(
             """
             INSERT INTO path_items (

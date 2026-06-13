@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 ALLOWED_ITEM_STATUSES = ("not_started", "in_progress", "done")
 
 
+class PathItemResource(BaseModel):
+    resource_id: str
+    title: str
+    type: str = ""
+
+
 class PathItemView(BaseModel):
     item_id: int
     sequence: int
@@ -25,6 +31,7 @@ class PathItemView(BaseModel):
     objective: str = ""
     rationale: str = ""
     mastery_status: str = "not_started"
+    resources: list[PathItemResource] = Field(default_factory=list)
 
 
 class PathOpResult(BaseModel):
@@ -69,6 +76,12 @@ async def load_active_path_items(*, user_id: str, tenant_id: str, pg_pool) -> li
                 """,
                 path_id,
             )
+            # 节点按 concept 自动关联资源（批量查一次，内存分组）：让路径每一步
+            # 有具体资源支撑，无需手动绑定。匹配不上的泛节点（如「建立直觉」）资源为空。
+            concepts = [str(row["concept"]) for row in rows if row["concept"]]
+            by_concept = await _resources_by_concept(
+                conn, concepts, user_id=user_id, tenant_id=tenant_id
+            )
         return [
             PathItemView(
                 item_id=int(row["id"]),
@@ -77,12 +90,45 @@ async def load_active_path_items(*, user_id: str, tenant_id: str, pg_pool) -> li
                 objective=str(row["objective"] or ""),
                 rationale=str(row["rationale"] or ""),
                 mastery_status=str(row["mastery_status"]),
+                resources=by_concept.get(str(row["concept"] or ""), []),
             )
             for row in rows
         ]
     except Exception as exc:
         logger.info("active path items degraded: %s", exc)
         return []
+
+
+async def _resources_by_concept(
+    conn, concepts: list[str], *, user_id: str, tenant_id: str
+) -> dict[str, list[PathItemResource]]:
+    """按 concept 批量查资源，每 concept 取前 2 个（created_at 倒序）。"""
+    if not concepts:
+        return {}
+    rows = await conn.fetch(
+        """
+        SELECT id::text AS resource_id, concept, type,
+               COALESCE(meta->>'title', type) AS title, created_at
+        FROM resources
+        WHERE user_id=$1 AND tenant_id=$2 AND concept = ANY($3::text[])
+        ORDER BY created_at DESC
+        """,
+        user_id,
+        tenant_id,
+        list(set(concepts)),
+    )
+    grouped: dict[str, list[PathItemResource]] = {}
+    for row in rows:
+        bucket = grouped.setdefault(str(row["concept"]), [])
+        if len(bucket) < 2:
+            bucket.append(
+                PathItemResource(
+                    resource_id=row["resource_id"],
+                    title=str(row["title"] or ""),
+                    type=str(row["type"] or ""),
+                )
+            )
+    return grouped
 
 
 async def _owned_path_id(conn, item_id: int, *, user_id: str, tenant_id: str) -> int:

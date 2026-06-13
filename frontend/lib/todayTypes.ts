@@ -32,12 +32,19 @@ export interface TodayResource {
   source_policy: string;
 }
 
+export interface TodayPathResource {
+  resource_id: string;
+  title: string;
+  type?: string;
+}
+
 export interface TodayLearningPathNode {
   id: string;
   title: string;
   status: TodayPathStatus;
   summary: string;
   item_id?: number | null;
+  resources?: TodayPathResource[];
 }
 
 export interface TodayProfileSignal {

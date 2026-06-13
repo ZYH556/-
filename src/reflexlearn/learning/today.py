@@ -50,12 +50,19 @@ class TodayResource(BaseModel):
     source_policy: str = "owned_or_generated"
 
 
+class TodayPathResource(BaseModel):
+    resource_id: str
+    title: str
+    type: str = ""
+
+
 class TodayLearningPathNode(BaseModel):
     id: str
     title: str
     status: PathStatus
     summary: str
     item_id: int | None = None  # 真实 path_item id；合成示意节点为 None
+    resources: list[TodayPathResource] = Field(default_factory=list)
 
 
 class ProfileSignal(BaseModel):
@@ -228,6 +235,16 @@ def _real_path_nodes(
             status = "next"
         item_id = _int(item.get("item_id") or item.get("id"), 0)
         title = _text(item.get("concept") or item.get("objective"), "学习节点")
+        raw_resources = item.get("resources")
+        resources = [
+            TodayPathResource(
+                resource_id=_text(res.get("resource_id")),
+                title=_text(res.get("title"), "学习资源"),
+                type=_text(res.get("type")),
+            )
+            for res in (raw_resources if isinstance(raw_resources, Sequence) and not isinstance(raw_resources, str) else [])
+            if isinstance(res, Mapping) and _text(res.get("resource_id"))
+        ]
         nodes.append(
             TodayLearningPathNode(
                 id=str(item_id or title),
@@ -235,6 +252,7 @@ def _real_path_nodes(
                 status=status,
                 summary=_text(item.get("objective") or item.get("rationale"), "推进这一步。"),
                 item_id=item_id or None,
+                resources=resources,
             )
         )
     return nodes
