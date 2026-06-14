@@ -22,6 +22,7 @@ def _hermetic_guard(monkeypatch):
     import reflexlearn.common.db as db
     import reflexlearn.common.embedding as emb
     import reflexlearn.learning.bilibili_search as bili
+    import reflexlearn.learning.mdn_search as mdn
     import reflexlearn.memory.manager as mgr
     import reflexlearn.orchestration.nodes.reflection.critic as critic
     import reflexlearn.rag.ranking.rerank as rr
@@ -38,8 +39,13 @@ def _hermetic_guard(monkeypatch):
     async def _blocked_bili(*args, **kwargs):
         return None
 
+    async def _blocked_mdn(*args, **kwargs):
+        return None
+
     if not hasattr(bili, "_original_search_videos"):
         bili._original_search_videos = bili.BiliSearchClient.search_videos
+    if not hasattr(mdn, "_original_search_docs"):
+        mdn._original_search_docs = mdn.MdnSearchClient.search_docs
 
     monkeypatch.setattr(emb, "_get_model", _blocked_emb)
     monkeypatch.setattr(rr, "_get_reranker", _blocked_rr)
@@ -47,3 +53,4 @@ def _hermetic_guard(monkeypatch):
     monkeypatch.setattr(mgr, "get_qdrant", _blocked_qdrant)
     monkeypatch.setattr(critic, "get_qdrant", _blocked_qdrant)
     monkeypatch.setattr(bili.BiliSearchClient, "search_videos", _blocked_bili)
+    monkeypatch.setattr(mdn.MdnSearchClient, "search_docs", _blocked_mdn)

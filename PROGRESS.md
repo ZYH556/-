@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**资源详情页 B 站视频站内播放（真实搜索"真实可用"收口）+ codex 审查交接**——①新增 `components/resource/ResourceEmbed.tsx`：external_video + embed_url 资源在详情页内嵌 B 站官方播放器（16:9，sandbox 隔离，referrerPolicy=no-referrer）；**默认不挂 iframe**（点击"在站内播放"才加载，不自动外呼/不泄漏 referrer，贴合 metadata_only 红线）；`resources/[id]/page.tsx` 接入。活体：id=254（真实 bvid BV1PrLS6pEJS）点击播放 → B 站播放器站内渲染（标题/UP主/9.7万赞/43:52 控件齐全）——**真实搜索→保存→详情页站内播放** 闭环打通。②新增 `docs/24-Claude全栈接管代码审查交接.md`（给 codex 的审查向导：范围 a50b516^..110d9cc、核心文件清单、设计决策、**§4 主动暴露 7 项待确认边界**、验证命令）。验证：全量 **557 passed**；tsc 0 错；check_frontend_ia ok；截图 ws-resource-video-embed.png。上一轮：W3 续（路径节点关联资源）。**codex 正在并行审查接管以来代码**（范围见 docs/24 §1）。
+最后更新：2026-06-13 · 本轮成果：**官方文档真实接入（MDN 公开搜索 + 领域门控）**——①新增 `learning/mdn_search.py`：MDN Web Docs 公开 search API（`/api/v1/search`，zh-CN locale，无签名/cookie，缓存 1h + 滑窗限频 + `trust_env=False` + 任何失败返 None 回落静态）；`parse_mdn_payload` 按 score 过滤低相关（MIN_SCORE=5）。②`resource_discovery.py` +`merge_live_docs`（替换静态 official_doc 候选 scikit-learn/PyTorch、保留其他 provider、degraded `mdn:live`）。③**领域门控** `is_web_topic`：MDN 只覆盖 Web/前端，goal+薄弱点含 Web 关键词（javascript/前端/promise/react…）才查——修复 ML 目标「线性回归入门」误匹配 MDN「Svelte 入门」（"入门"跨领域误配）；非 Web 目标静默回退静态 official_doc。④config +`enable_mdn_search`；conftest 类级守卫拦 `MdnSearchClient.search_docs`（原方法存 `_original_search_docs`）。活体：前端目标（JS 异步）→ 真实 B 站视频 + 真实 MDN 文档（`bilibili:live`+`mdn:live`）；ML 目标（线性回归）→ MDN 门控跳过、official_doc 回静态 scikit-learn/PyTorch（仅 `bilibili:live`）。验证：全量 **564 passed**（+7）；workspace 290/resource_discovery 270 行（<300）；check_frontend_ia ok。上一轮：资源详情页 B 站视频站内播放。
 
 ---
 
@@ -126,6 +126,14 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-7 ✅ · 官方文档真实接入（MDN 公开搜索 + 领域门控，Claude 全栈轮）
+
+- `mdn_search.py`（新）：MDN 公开 search API（zh-CN，缓存/限频/降级/trust_env=False）+ `parse_mdn_payload`（score 过滤）+ `is_web_topic`（领域门控）。
+- `resource_discovery.py` +`merge_live_docs`（替换静态 official_doc，保留其他）。
+- `workspace.py` discover 路由：official_doc + is_web_topic 才查 MDN，否则回退静态。
+- conftest 守卫拦 `MdnSearchClient.search_docs`；config +enable_mdn_search。
+- 活体：前端目标得 MDN 真实文档，ML 目标门控回退静态。全量 564 passed。
 
 ### FS-6 ✅ · 资源详情页 B 站视频站内播放 + codex 审查交接（Claude 全栈轮）
 

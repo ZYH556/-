@@ -217,6 +217,52 @@ def merge_live_videos(
     )
 
 
+def merge_live_docs(
+    result: ResourceDiscoveryResult,
+    docs: list,
+    req: DiscoverResourceRequest,
+) -> ResourceDiscoveryResult:
+    """用真实 MDN 文档替换静态 official_doc 候选（scikit-learn/PyTorch）；其他保留。
+
+    docs: list[MdnDoc]（鸭子类型：title/url/summary）。纯函数，无 IO。
+    """
+    if not docs:
+        return result
+    topic = discovery_topic(req)
+    weak_points = req.weak_points[:4]
+    kept = [
+        item
+        for item in result.items
+        if not item.resource_id.startswith("candidate-scikit-learn-")
+        and not item.resource_id.startswith("candidate-pytorch-")
+    ]
+    live: list[ResourceCandidate] = []
+    for index, doc in enumerate(docs):
+        url_slug = doc.url.rstrip("/").rsplit("/", 1)[-1].lower() or str(index)
+        live.append(
+            ResourceCandidate(
+                resource_id=f"candidate-mdn-{url_slug}",
+                type="official_doc",
+                title=doc.title,
+                content_preview=(doc.summary or "MDN Web 官方文档")[:160],
+                provider="MDN",
+                source_label="官方文档",
+                href=doc.url,
+                estimated_minutes=18,
+                reason=f"MDN 关于「{topic}」的权威文档，用来校准概念边界和标准用法。",
+                matched_goal=req.goal,
+                matched_weak_points=weak_points,
+                rank_score=round(0.88 - index * 0.03, 4),
+            )
+        )
+    ranked = sorted([*live, *kept], key=lambda item: item.rank_score, reverse=True)
+    return ResourceDiscoveryResult(
+        items=ranked[: req.limit],
+        query=result.query,
+        degraded=[*result.degraded, "mdn:live"],
+    )
+
+
 def _slug(*parts: str) -> str:
     raw = "-".join(parts).lower()
     chars = [char if char.isalnum() else "-" for char in raw]

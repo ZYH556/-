@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     # —— W2: 资源发现真实搜索 ——
     enable_bilibili_search: bool = True    # B 站 wbi 签名搜索；失败/限频自动回落静态候选
     bili_search_timeout_s: float = 6.0     # 单次外呼超时；discover 不被外站拖死
+    enable_mdn_search: bool = True         # MDN 官方文档搜索（Web/前端概念）；失败/无结果回落静态
+    mdn_search_timeout_s: float = 6.0
 
     cors_allow_origins: str = (
         "http://localhost:3000,http://localhost:3001,"

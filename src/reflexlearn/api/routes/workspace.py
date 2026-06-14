@@ -11,6 +11,7 @@ from reflexlearn.common.auth import CurrentUser
 from reflexlearn.common.config import get_settings
 from reflexlearn.learning.assets import LearningAssetStore, LearningResource
 from reflexlearn.learning.bilibili_search import get_bili_client
+from reflexlearn.learning.mdn_search import get_mdn_client, is_web_topic
 from reflexlearn.learning.resource_detail import (
     ResourceStudyStore,
     StudyStatus,
@@ -22,6 +23,7 @@ from reflexlearn.learning.resource_discovery import (
     DiscoverResourceRequest,
     build_resource_discovery,
     discovery_query,
+    merge_live_docs,
     merge_live_videos,
 )
 from reflexlearn.learning.spaces import get_space_store
@@ -124,12 +126,19 @@ async def discover_resources(
 ):
     result = build_resource_discovery(req)
     providers = req.providers or list(DEFAULT_PROVIDERS)
-    if get_settings().enable_bilibili_search and "bilibili" in providers:
+    settings = get_settings()
+    if settings.enable_bilibili_search and "bilibili" in providers:
         videos = await get_bili_client().search_videos(discovery_query(req), limit=3)
         if videos:
             result = merge_live_videos(result, videos, req)
         else:
             result.degraded.append("bilibili:fallback_static")
+    if settings.enable_mdn_search and "official_doc" in providers and is_web_topic(discovery_query(req)):
+        docs = await get_mdn_client().search_docs(discovery_query(req), limit=2)
+        if docs:
+            result = merge_live_docs(result, docs, req)
+        else:
+            result.degraded.append("mdn:fallback_static")
     return result
 
 
