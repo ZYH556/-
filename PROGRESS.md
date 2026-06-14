@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**官方文档真实接入（MDN 公开搜索 + 领域门控）**——①新增 `learning/mdn_search.py`：MDN Web Docs 公开 search API（`/api/v1/search`，zh-CN locale，无签名/cookie，缓存 1h + 滑窗限频 + `trust_env=False` + 任何失败返 None 回落静态）；`parse_mdn_payload` 按 score 过滤低相关（MIN_SCORE=5）。②`resource_discovery.py` +`merge_live_docs`（替换静态 official_doc 候选 scikit-learn/PyTorch、保留其他 provider、degraded `mdn:live`）。③**领域门控** `is_web_topic`：MDN 只覆盖 Web/前端，goal+薄弱点含 Web 关键词（javascript/前端/promise/react…）才查——修复 ML 目标「线性回归入门」误匹配 MDN「Svelte 入门」（"入门"跨领域误配）；非 Web 目标静默回退静态 official_doc。④config +`enable_mdn_search`；conftest 类级守卫拦 `MdnSearchClient.search_docs`（原方法存 `_original_search_docs`）。活体：前端目标（JS 异步）→ 真实 B 站视频 + 真实 MDN 文档（`bilibili:live`+`mdn:live`）；ML 目标（线性回归）→ MDN 门控跳过、official_doc 回静态 scikit-learn/PyTorch（仅 `bilibili:live`）。验证：全量 **564 passed**（+7）；workspace 290/resource_discovery 270 行（<300）；check_frontend_ia ok。上一轮：资源详情页 B 站视频站内播放。
+最后更新：2026-06-13 · 本轮成果：**审查修补 + PERF 地基（度量先行 + 超时分级）**——①回应 codex 审查 3 项（已提交 1d3f932）：MDN candidate_id 用 sha1 短 hash 防尾段碰撞、`get_mdn_client`/`get_bili_client` 工厂读 settings timeout（此前空挂）、discover 路由层补 3 条测试。②**PERF 地基**：新增 `scripts/check_chat_perf.sh`（python httpx 流式采集真实 /chat：first_signal/TTFC(首 resource_card)/total(done)/llm_calls，分离网关与端到端）；首测建基线暴露真问题——**TTFC=186s、total=187s、15 次 LLM 近乎完全串行**（first_signal 0.2s 但实质内容几乎和结束同时 = 非流式 + fan-out 疑似未真并行）。③**PERF-C 超时分级**：`llm_connect_timeout_s=5s` 独立于 read 30s（gateway httpx.Timeout(read, connect)），中转站 SYN 黑洞时单次 5s 快速降级（实测过此前每资源等满 30s+、5 资源 220s+）；test_gateway 同步 `_FakeTimeout` + connect 断言。④基线+调用图+下一轮优先级写入 docs/19 §5（查 fan-out 真并行 / PERF-A 流式骨架，均需单独一轮、不一上来大改主链路）。验证：全量 **568 passed**；check_chat_perf 活体采集成功。**未改 LangGraph 主链路**（仅 gateway/config）。上一轮：官方文档真实接入（MDN + 领域门控）。
 
 ---
 
@@ -126,6 +126,14 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-8 ✅ · 审查修补 + PERF 地基（度量先行 + 超时分级，Claude 全栈轮）
+
+- 审查修补（1d3f932）：MDN candidate_id→sha1 短 hash；client 工厂读 settings timeout；discover 路由层 +3 测试。
+- PERF 地基：`scripts/check_chat_perf.sh`（真实 /chat SSE 采集 TTFC/total/llm_calls）；基线 **TTFC=186s/total=187s/15 次 LLM 串行**（暴露非流式+fan-out 疑似串行）。
+- PERF-C 超时分级：`llm_connect_timeout_s=5s` 独立 read（gateway httpx.Timeout），SYN 黑洞快速降级；test_gateway 同步。
+- docs/19 §5 写入基线 + 下一轮优先级（fan-out 真并行 / PERF-A 流式，单独一轮）。
+- 全量 568 passed；未改 LangGraph 主链路。
 
 ### FS-7 ✅ · 官方文档真实接入（MDN 公开搜索 + 领域门控，Claude 全栈轮）
 

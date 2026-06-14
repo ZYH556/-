@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     openai_compat_base_url: str = ""     # 中转站 base URL；按服务要求填 https://... 或 https://.../v1
     openai_compat_model: str = ""        # 中转站模型名，如 gpt-5.5；网关会规范化为 openai/{model}
     openai_compat_wire_api: str = "chat_completions"  # chat_completions 或 responses（timicc 走 /responses）
-    llm_request_timeout_s: float = 30.0  # 单次 LLM 外呼超时秒数；中转站无响应时快速降级
+    llm_request_timeout_s: float = 30.0  # 单次 LLM 外呼总超时（read/write）；中转站无响应时快速降级
+    llm_connect_timeout_s: float = 5.0   # 连接超时单独设短：中转站 SYN 黑洞时 5s 快速降级，不等满总超时（PERF-C）
 
     kafka_bootstrap_servers: str = "127.0.0.1:19092"
 

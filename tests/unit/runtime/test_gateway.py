@@ -22,12 +22,21 @@ class _S:
         self.openai_compat_wire_api = kw.get("openai_compat_wire_api", "chat_completions")
         self.summary_model = kw.get("summary_model", "")
         self.llm_request_timeout_s = kw.get("llm_request_timeout_s", 30.0)
+        self.llm_connect_timeout_s = kw.get("llm_connect_timeout_s", 5.0)
 
 
 def _gw(**kw) -> LLMGateway:
     gw = LLMGateway()
     gw._settings = _S(**kw)
     return gw
+
+
+class _FakeTimeout:
+    """httpx.Timeout 替身：记录 default(read/write/pool) 与 connect，供断言超时分级。"""
+
+    def __init__(self, default=None, *, connect=None, **kw):
+        self.default = default
+        self.connect = connect
 
 
 # —— summary 成本感知路由：走便宜档 ——
@@ -140,7 +149,7 @@ async def test_openai_compat_complete_uses_direct_http(monkeypatch):
             calls.append({"url": url, "headers": headers, "json": json})
             return FakeResponse()
 
-    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(AsyncClient=FakeClient))
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(AsyncClient=FakeClient, Timeout=_FakeTimeout))
     gw = _gw(
         openai_compat="relay-key",
         openai_compat_base_url="https://timicc.com",
@@ -154,7 +163,8 @@ async def test_openai_compat_complete_uses_direct_http(monkeypatch):
     )
 
     assert completion.model_used == "openai/gpt-5.5"
-    assert calls[0]["timeout"] == 30.0
+    assert calls[0]["timeout"].default == 30.0
+    assert calls[0]["timeout"].connect == 5.0
     assert calls[1]["url"] == "https://timicc.com/v1/chat/completions"
     assert calls[1]["headers"]["Authorization"] == "Bearer relay-key"
     assert calls[1]["json"]["model"] == "gpt-5.5"
@@ -191,7 +201,7 @@ async def test_openai_compat_responses_uses_direct_http(monkeypatch):
             calls.append({"url": url, "headers": headers, "json": json})
             return FakeResponse()
 
-    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(AsyncClient=FakeClient))
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(AsyncClient=FakeClient, Timeout=_FakeTimeout))
     gw = _gw(
         openai_compat="relay-key",
         openai_compat_base_url="https://relay.example/v1",
@@ -212,7 +222,8 @@ async def test_openai_compat_responses_uses_direct_http(monkeypatch):
     assert completion.text == '{"ok":true}'
     assert completion.input_tokens == 7
     assert completion.output_tokens == 11
-    assert calls[0]["timeout"] == 30.0
+    assert calls[0]["timeout"].default == 30.0
+    assert calls[0]["timeout"].connect == 5.0
     assert calls[1]["url"] == "https://relay.example/v1/responses"
     assert calls[1]["headers"]["Authorization"] == "Bearer relay-key"
     assert calls[1]["json"]["model"] == "gpt-5.5"
@@ -252,7 +263,7 @@ async def test_openai_compat_responses_parses_nested_output(monkeypatch):
         async def post(self, url, *, headers, json):
             return FakeResponse()
 
-    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(AsyncClient=FakeClient))
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(AsyncClient=FakeClient, Timeout=_FakeTimeout))
     gw = _gw(
         openai_compat="relay-key",
         openai_compat_base_url="https://relay.example",

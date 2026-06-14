@@ -136,8 +136,14 @@ class LLMGateway:
             "Authorization": f"Bearer {self._settings.openai_compat_api_key}",
             "Content-Type": "application/json",
         }
+        # connect 超时单独设短（中转站 SYN 无响应时 5s 快速降级，不等满总超时）；
+        # read/write/pool 用 llm_request_timeout_s 容纳生成耗时（PERF-C 超时分级）。
+        timeout = httpx.Timeout(
+            self._settings.llm_request_timeout_s,
+            connect=self._settings.llm_connect_timeout_s,
+        )
         try:
-            async with httpx.AsyncClient(timeout=self._settings.llm_request_timeout_s) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
                     openai_compat.request_url(self._settings, wire_api),
                     headers=headers,
