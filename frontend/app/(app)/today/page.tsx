@@ -19,8 +19,10 @@ const taskSecondaryActions = [
   { label: "调整学习顺序", href: "/plan", icon: "adjust" },
 ] as const;
 
-function greeting(): string {
-  const hour = new Date().getHours();
+// 时段问候依赖客户端本地时区，须在 mounted 后计算——否则 SSR(服务端时区) 与
+// 浏览器时区的小时数不一致会触发 hydration mismatch。SSR 渲染稳定的「你好」。
+function greetingPrefix(hour: number | null): string {
+  if (hour === null) return "你好";
   if (hour < 6) return "夜深了";
   if (hour < 12) return "早上好";
   if (hour < 18) return "下午好";
@@ -33,6 +35,11 @@ export default function TodayPage() {
   const [loadError, setLoadError] = useState("");
   const today = remoteToday ?? fallbackToday;
   const primaryHref = today.mainTask.spaceId ? `/spaces/${today.mainTask.spaceId}` : "/spaces";
+  const [hour, setHour] = useState<number | null>(null);
+
+  useEffect(() => {
+    setHour(new Date().getHours());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,7 +62,7 @@ export default function TodayPage() {
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-8">
       <TodayHero
-        greeting={`${greeting()}，${today.greeting}`}
+        greeting={`${greetingPrefix(hour)}，${today.greeting}`}
         learner={auth.user.user_id}
         goal={today.currentGoal}
         summary={`当前主线：${today.mainTask.pathNode || today.mainTask.title}`}

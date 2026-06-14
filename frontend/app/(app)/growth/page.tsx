@@ -230,7 +230,7 @@ function TechnicalEvidence({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-[var(--ws-ink)]">{item.node}</span>
                   <span className="text-xs text-slate-500">
-                    {new Date(item.created_at * 1000).toLocaleString()}
+                    <ClientTime ts={item.created_at} />
                   </span>
                 </div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">{item.event_type}</p>
@@ -241,4 +241,14 @@ function TechnicalEvidence({
       </WsCard>
     </div>
   );
+}
+
+/* 本地时间格式化依赖浏览器时区，须 mounted 后渲染：避免 SSR(服务端时区) 与
+   客户端 toLocaleString 不一致触发 hydration mismatch。SSR 渲染空占位。 */
+function ClientTime({ ts }: { ts: number }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    setText(new Date(ts * 1000).toLocaleString());
+  }, [ts]);
+  return <span suppressHydrationWarning>{text}</span>;
 }
