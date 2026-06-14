@@ -125,7 +125,9 @@ _client: MdnSearchClient | None = None
 def get_mdn_client() -> MdnSearchClient:
     global _client
     if _client is None:
-        _client = MdnSearchClient()
+        from reflexlearn.common.config import get_settings
+
+        _client = MdnSearchClient(timeout_s=get_settings().mdn_search_timeout_s)
     return _client
 
 

@@ -101,16 +101,34 @@ def test_merge_live_docs_replaces_static_official_keeps_others():
     merged = merge_live_docs(base, docs, req)
 
     ids = [item.resource_id for item in merged.items]
-    assert "candidate-mdn-promise" in ids
+    mdn_ids = [i for i in ids if i.startswith("candidate-mdn-")]
+    assert len(mdn_ids) == 1  # candidate_id 用 url 短 hash（稳定、防尾段碰撞）
     # 静态 official_doc 候选（scikit-learn/pytorch）被替换
     assert all(not i.startswith("candidate-scikit-learn-") for i in ids)
     assert all(not i.startswith("candidate-pytorch-") for i in ids)
-    mdn_item = next(i for i in merged.items if i.resource_id == "candidate-mdn-promise")
+    mdn_item = next(i for i in merged.items if i.resource_id in mdn_ids)
     assert mdn_item.provider == "MDN"
     assert mdn_item.source_label == "官方文档"
     # 其他 provider（B 站静态 / 公开课）保留
     assert any(i.provider not in ("MDN",) for i in merged.items)
     assert "mdn:live" in merged.degraded
+
+
+def test_merge_live_docs_id_is_stable_and_distinct_per_url():
+    req = DiscoverResourceRequest(goal="JavaScript", weak_points=["Promise"])
+    base = build_resource_discovery(req)
+    docs = [
+        MdnDoc(title="A", url="https://developer.mozilla.org/zh-CN/docs/Web/X/Promise", score=40),
+        MdnDoc(title="B", url="https://developer.mozilla.org/zh-CN/docs/Web/Y/Promise", score=39),
+    ]
+
+    first = merge_live_docs(base, docs, req)
+    second = merge_live_docs(base, docs, req)
+
+    ids1 = sorted(i.resource_id for i in first.items if i.resource_id.startswith("candidate-mdn-"))
+    ids2 = sorted(i.resource_id for i in second.items if i.resource_id.startswith("candidate-mdn-"))
+    assert len(ids1) == 2  # 同尾段 Promise 不再碰撞
+    assert ids1 == ids2  # 同 url 每次同 id（稳定，保存幂等可靠）
 
 
 def test_merge_live_docs_noop_without_docs():

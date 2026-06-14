@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Literal
 from urllib.parse import quote
 
@@ -238,10 +239,12 @@ def merge_live_docs(
     ]
     live: list[ResourceCandidate] = []
     for index, doc in enumerate(docs):
-        url_slug = doc.url.rstrip("/").rsplit("/", 1)[-1].lower() or str(index)
+        # candidate_id 用 url 的稳定短 hash：不同 MDN 页可能同尾段，
+        # 用尾段做 id 会让保存幂等误判重复（审查反馈 #1）。
+        doc_hash = hashlib.sha1(doc.url.encode("utf-8")).hexdigest()[:12]
         live.append(
             ResourceCandidate(
-                resource_id=f"candidate-mdn-{url_slug}",
+                resource_id=f"candidate-mdn-{doc_hash}",
                 type="official_doc",
                 title=doc.title,
                 content_preview=(doc.summary or "MDN Web 官方文档")[:160],

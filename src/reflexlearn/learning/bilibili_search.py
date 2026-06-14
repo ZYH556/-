@@ -172,7 +172,9 @@ _client: BiliSearchClient | None = None
 def get_bili_client() -> BiliSearchClient:
     global _client
     if _client is None:
-        _client = BiliSearchClient()
+        from reflexlearn.common.config import get_settings
+
+        _client = BiliSearchClient(timeout_s=get_settings().bili_search_timeout_s)
     return _client
 
 
