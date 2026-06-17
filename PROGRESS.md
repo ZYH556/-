@@ -4,7 +4,7 @@
 > 标注「做到哪、改了什么、下一步做什么」。**每完成一轮开发，更新第 5 节（追加本轮）+ 第 6 节（勾掉已完成）+ 第 2.3 节（服务状态）。**
 > single source of truth 是 `docs/00-项目蓝图与里程碑.md`，本文件是它的「执行态快照」。
 
-最后更新：2026-06-13 · 本轮成果：**审查修补 + PERF 地基（度量先行 + 超时分级）**——①回应 codex 审查 3 项（已提交 1d3f932）：MDN candidate_id 用 sha1 短 hash 防尾段碰撞、`get_mdn_client`/`get_bili_client` 工厂读 settings timeout（此前空挂）、discover 路由层补 3 条测试。②**PERF 地基**：新增 `scripts/check_chat_perf.sh`（python httpx 流式采集真实 /chat：first_signal/TTFC(首 resource_card)/total(done)/llm_calls，分离网关与端到端）；首测建基线暴露真问题——**TTFC=186s、total=187s、15 次 LLM 近乎完全串行**（first_signal 0.2s 但实质内容几乎和结束同时 = 非流式 + fan-out 疑似未真并行）。③**PERF-C 超时分级**：`llm_connect_timeout_s=5s` 独立于 read 30s（gateway httpx.Timeout(read, connect)），中转站 SYN 黑洞时单次 5s 快速降级（实测过此前每资源等满 30s+、5 资源 220s+）；test_gateway 同步 `_FakeTimeout` + connect 断言。④基线+调用图+下一轮优先级写入 docs/19 §5（查 fan-out 真并行 / PERF-A 流式骨架，均需单独一轮、不一上来大改主链路）。验证：全量 **568 passed**；check_chat_perf 活体采集成功。**未改 LangGraph 主链路**（仅 gateway/config）。上一轮：官方文档真实接入（MDN + 领域门控）。
+最后更新：2026-06-15 · 本轮成果：**PERF-D（启动后台预热 bge 模型）**——新增 `rag/warmup.py`，app lifespan 启动 `asyncio.ensure_future` 后台预热 embedding 再 reranker（串行不并发两个 bge、各丢线程、复用 `is_available()` 吞异常），门控 `enable_model_warmup`(默认 True)∧`enable_rag`，全程降级不崩启动，消除首请求 10–30s 懒加载。warmup +5 测试 + `with TestClient` 活体验证后台触发，**全量 605 passed**。**性能线 PERF-A 流式/fan-out 并行/PERF-B cheap 路由半/PERF-C 连接池+后台化/PERF-D 预热 全部落地**；统一诚实边界：端到端 TTFC·total 实降待真实可用中转站活体采集（relay 502），剩 PERF-B 前半 merge profile+planner。上一轮：PERF-C 连接池 + PERSIST 后台化。
 
 ---
 
@@ -126,6 +126,68 @@ curl -N -s --noproxy '*' -X POST http://127.0.0.1:8000/api/chat \
 ---
 
 ## 5. 已完成轮次（倒序，含改动文件清单）
+
+### FS-15 ✅ · PERF-D：启动后台预热 bge 模型（Claude 全栈轮）
+
+- 新增 `rag/warmup.py` 的 `warm_models(settings)`：app lifespan 启动时 `asyncio.ensure_future` 后台跑（不阻塞启动），**串行**预热 embedding 再 reranker（绝不并发两个 bge，OOM 铁律）、各 `asyncio.to_thread` 丢线程、复用各模块 `is_available()`（触发加载且吞异常）。
+- 门控 `enable_model_warmup`(默认 True) ∧ `enable_rag`；全程降级（模型缺失/离线/加载失败只记日志，绝不崩启动）。消除「首请求 +10–30s 2GB 懒加载」。
+- 测试：warmup +5（串行/各门控跳过/降级不外抛）；`with TestClient` 活体验证 lifespan 后台触发 `['emb','rr']` + health 200。**全量 605 passed**。
+- Grafana p95 面板未做（指标已埋，属运维侧）。
+
+### FS-14 ✅ · PERF-C：连接池复用 + PERSIST 后台化（Claude 全栈轮）
+
+- PERF-C 三项：超时分级（FS-8 已做）；本轮补齐另两项。
+- **共享 httpx client**：新增 `llm_gateway/http_client.py`（模块级 `AsyncClient` 单例 + `get/reset/aclose`）；`gateway._complete_openai_compat` 与 `streaming._stream_openai_compat` 改用，省每次外呼 TCP+TLS 握手（~0.3–1s/次 × 每请求 5–15 次）。独立模块避 gateway↔streaming 循环导入；app lifespan 退出 `aclose`。
+- **PERSIST 后台化**：`run_session` 的 Redis 写回/递归摘要 LLM/promote/autogrow 从「yield 耗尽后同步」改 `asyncio.ensure_future` 后台 task（`_spawn_persist`+`_PERSIST_TASKS` 强引用防 GC，`_persist_session` 抽函数）。**done 帧不再等待**（多轮溢出递归摘要时省 3–10s）；`drain_persist_tasks()` 供单测收尾 + lifespan 优雅关停。
+- 测试：gateway client 复用 +1、PERSIST 后台化 +1（persist 卡 gate 时 run_session 消费已结束）；3 处 run_session 测试消费方加 drain。**全量 600 passed**。
+- **诚实边界**：端到端时长收益仍需真实可用中转站活体采集（relay 502）；连接池省握手、后台化省 done 帧等待（仅多轮溢出显著）。
+
+### FS-13 ✅ · PERF-B（cheap 路由半）：评判类任务便宜档 + 中转站 cheap 路由修复（Claude 全栈轮）
+
+- PERF-B = 砍串行前置 + cheap 路由；本轮做**后半 cheap 路由**（前半 merge profile+planner 留待，见诚实边界）。
+- `gateway.CHEAP_TASK_TYPES` 扩为 `{summary, verification, judgment, reasoning}`——质检/judge/反思走便宜档；**不含 generation/planning/profiling**（定核心产出与个性化）。
+- **修复 cheap 路由对中转站失效的旧坑**：原 `_select_model` 对 openai_compat 一律返回主模型、cheap→`summary_model` 在中转站会 key 查找失败。新增 `openai_compat_cheap_model` 配置；中转站下评判任务配了便宜档时走它（裸名进 wire payload + 复用中转站 key/base_url，`_is_openai_compat_model` 认便宜档），**默认空=零回归**。
+- `openai_compat.payload/stream_payload` 加 `model=` 透传选定模型；新增 `bare_model`/`routed_model_for`。provider 档（qwen/anthropic）评判任务默认走便宜档（turbo/haiku）。
+- 测试：gateway +4（评判任务 cheap、中转站便宜档路由+key/base、默认零回归、wire payload model）。**全量 598 passed**。
+- **诚实边界**：中转站生产路径**默认零变化**，须运维配 `openai_compat_cheap_model` + eval ablation 守门才生效；**merge profile+planner（去一次串行往返）未做**（侵入图拓扑 + 无可用中转站难验证收益，单独一轮）；cheap 路由降评判类**单次时延**不减**次数**。
+
+### FS-12 ✅ · fan-out 串行根因确认 + 修复（RAG 推理丢线程，Claude 全栈轮）
+
+- 按 docs/19 §6「先确认根因再改」，最小复现逐层隔离：**LangGraph Send 并行**（4×1s=1.03s）、**网关 complete() 并行**（4×1s=1.01s）、**真 graph 扇出串行**（6 资源 gen 间隔 2s）、**retrieve 置空后并行**（span=0.00s，18.59s→4.34s）。**根因坐实：串行在 `generate_resource` 的 RAG retrieve**。
+- 根因：`semantic.embed_query` / `rerank.predict` 是**同步 CPU**，在事件循环上跑阻塞 loop，使并发 N 资源 retrieve 逐个串行（LLM 调用无法重叠）；外加 `KeywordIndex` 构建失败未缓存，qdrant 不可用时每资源各自重试慢构建。
+- 修复（守 OOM/双模型不并发铁律）：新增 `rag/model_infer.py` 的 `run_model()`——`asyncio.to_thread` 丢线程（事件循环让出→LLM 重叠）+ 全局 `threading.Lock` 串行实际推理（loop 无关，绝不并发 embedding/reranker）；`semantic`/`service._rerank_or_fallback` 接入。`KeywordIndex`：失败 30s 冷却（collapse 重试风暴）+ `invalidate()` 全量重置（含 `_build_lock`，修跨事件循环复用锁的潜在坑）。
+- 验证：修复后同实验 6 资源 gen **span=0.00s 并行**，total 18.59s→8.38s。`test_model_infer.py` +3、keyword 冷却 +1、rag_service 事件循环响应性 +1。**全量 594 passed**。
+- **诚实边界**：扇出并行性已在真 graph 坐实；端到端 TTFC/total 实降仍需真实可用中转站活体采集（当前 relay 502）。前置串行链（profile→planner→…→path_plan 4–5 次串行 LLM）属 PERF-B 范畴，未本轮处理。
+
+### FS-11 ✅ · PERF-A 第 2 步：token 流式接入 generator/chat/前端（Claude 全栈轮）
+
+- 目标：把 FS-10 的 `complete_stream()` 能力真正接进主链路，让资源逐 token 出（TTFC 体感）。
+- `orchestration/nodes/core/generator.py`：取 LangGraph `get_stream_writer()`（`_stream_writer()` 无 run 上下文→None→一次性生成，零回归），每轮生成前发 `reset` 帧、逐 token 经 custom 通道上抛 `{task_id,type,delta,reset}`（带 task_id 供前端按 fan-out 分路）。
+- `orchestration/graph.py`：`run_session` 的 `graph.astream` 从 `stream_mode="updates"` 改 `["updates","custom"]`，按 `(mode,chunk)` 解包；custom 帧包成 `{"__stream__":chunk}` yield（updates 帧契约不变）。
+- `api/routes/chat.py`：`__stream__` 帧转 `resource_delta` SSE（增量也过 `check_output` 脱敏，末帧完整卡片再脱敏一次）。
+- `skills/streaming.py`（新）：`generate_text(llm,messages,*,sink)` 流式优先助手（有 sink+开关→`complete_stream` 推增量，否则 `complete`）；`doc_gen`/`reading_gen` 接入（结构化 skill 不动）；`SkillContext` 加 `delta_sink`；`config` 加 `enable_llm_streaming`（kill-switch）。
+- 前端：`useChat` 新增 `resource_delta` reducer（按 task_id 累积流式卡片、reset 清场、末帧 `resource_card` 落定转 streaming=false）；`ResourceCard` 显「生成中」脉冲；`types.ts` 加 `ResourceDelta`/`ResourceCard.streaming`。
+- 守预算：gateway.py 433→228 行，拆出 `llm_gateway/models.py`（Completion/StreamChunk）+ `llm_gateway/streaming.py`（流式实现，gateway `complete_stream` 薄委托）。
+- 测试：streaming 助手 +4、generator 流式 emit +2、chat `resource_delta`/脱敏 +2，code_health 行预算恢复绿。**全量 589 passed + 前端 tsc 通过**。真实 langgraph `["updates","custom"]` 元组形态已活体验证。
+- **诚实边界**：TTFC 改善依赖中转站可流式响应；relay 502 时未产出增量→回退 `complete()`→离线兜底（无增量帧，不报错）。fan-out 仍串行（docs/19 §6），流式只让"首资源逐字出"，total 时长要靠 fan-out 并行化才降。
+
+### FS-10 ✅ · PERF-A 流式地基：`gateway.complete_stream()` 能力 + 单测（Claude 全栈轮）
+
+- 目标（docs/19 §5 优先级 2）：TTFC 186s→秒级的唯一解是 token 级流式。本轮按"先建能力 + 单测，再接 generator/chat"只做**网关流式能力**，零回归。
+- `llm_gateway/gateway.py`：新增 `complete_stream()`（async generator，逐 `StreamChunk` yield 增量，末帧 `done=True` 带聚合 `Completion`）；compat 走 `httpx client.stream()`、litellm 走 `acompletion(stream=True)`；新增 `StreamChunk` 模型 + `_sse_json`/`_litellm_chunk_delta` 解析助手。**`complete()` 逐字节未动**。
+- **降级铁律**：流式失败且**未产出增量**→回退一次性 `complete()`（degraded 单帧）；**已产出后失败**→用已收内容收尾、记降级、**不重复回退**（避免文本翻倍）；无凭证/generation 关闭仍抛错交上层本地兜底；schema 类任务不流式（调用方用 `complete()`）。
+- `llm_gateway/openai_compat.py`：新增 `stream_payload`（+stream=True）、`stream_delta`（chat=`choices[0].delta.content`；responses=`response.output_text.delta`）。
+- 测试：`test_gateway.py` +8（compat 增量→done、responses wire、502 未产出→回退、半截断流不重复、无 key 抛错、generation 关闭抛错、litellm 分支），`_S` 补 `enable_llm_generation`。**runtime 28 passed**。
+- **未接 generator/chat**：仍是非流式体感。下一步（PERF-A 第 2 步）：LangGraph 自定义 stream 通道（`get_stream_writer`）把 skill 内增量经队列上抛 → chat 新增 `resource_delta` SSE 帧（带 task_id 区分 fan-out）→ 前端 ResourceCard 增量渲染。注意：fan-out 仍串行（见 §6），流式先改善"首资源首字"，并行化是另一项。
+
+### FS-9 ✅ · 候选资源 → 学习路径节点显式绑定（产品闭环，Claude 全栈轮）
+
+- 需求：把「发现/保存资源」与「学习路径」双向打通——资源详情页可把一个资源固定到路径的某个节点（docs/23 §5 第 6 项）。纯数据操作，不依赖 LLM，502 也能验。
+- 后端 `learning/path_ops.py`：新增 `pin_resource_to_item`（写 `path_items.resource_id`，节点+资源**双重 ACL 校验**——绑别人资源=越权读，拒 403 `resource_forbidden`；空 resource_id 解绑写 NULL）；`load_active_path_items` 读出 pinned 资源、`_resources_by_id` 批查、`_merge_resources`（pinned 置顶标记、concept 自动关联去重补充，最多 3 个）；`PathItemResource.pinned` 字段。
+- 后端 `api/routes/plan.py`：新增 `PUT /plan/items/{item_id}/resource`（403 区分 path_item/resource forbidden、404 not_found、无 PG 降级 `pg:unavailable`）。
+- 后端 `learning/today.py`：`TodayPathResource.pinned` 透传，`_real_path_nodes` 映射 pinned。
+- 前端：`lib/planApi.ts` +`pinResourceToItem`；`lib/todayTypes.ts` +`pinned`；新组件 `components/resource/PinToPathPanel.tsx`（读真实节点 picker→绑定，已绑定显示「已固定到节点 X」，无真实节点提示先生成路径）；接入资源详情页；`PlanTimeline.tsx` pinned 资源加 📌 徽标。
+- 测试：`test_path_ops.py` +5（绑定/解绑/拒未拥有资源/拒他人节点/无 PG 降级），`test_plan_api.py` +2（auth gate + 降级）。**path/plan/today 24 passed；前端 tsc --noEmit 通过**。无需迁移（`path_items.resource_id` FK 列已存在）。未改 LangGraph 主链路。
 
 ### FS-8 ✅ · 审查修补 + PERF 地基（度量先行 + 超时分级，Claude 全栈轮）
 

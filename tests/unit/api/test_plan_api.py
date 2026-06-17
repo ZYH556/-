@@ -28,6 +28,9 @@ def test_plan_item_status_requires_authenticated_user():
     assert client.post(
         "/api/plan/items/insert", json={"after_item_id": 1, "concept": "c"}
     ).status_code in {401, 403}
+    assert client.put(
+        "/api/plan/items/1/resource", json={"resource_id": "11"}
+    ).status_code in {401, 403}
 
 
 def test_plan_item_status_rejects_unknown_value(monkeypatch):
@@ -42,6 +45,17 @@ def test_plan_item_status_degrades_without_pg(monkeypatch):
     client = _client(monkeypatch)
 
     response = client.patch("/api/plan/items/1/status", json={"status": "done"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert "pg:unavailable" in data["degraded"]
+
+
+def test_plan_pin_resource_degrades_without_pg(monkeypatch):
+    client = _client(monkeypatch)
+
+    response = client.put("/api/plan/items/1/resource", json={"resource_id": "11"})
 
     assert response.status_code == 200
     data = response.json()

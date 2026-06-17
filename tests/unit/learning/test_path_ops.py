@@ -4,6 +4,7 @@ from reflexlearn.learning.path_ops import (
     PathOwnershipError,
     insert_remedial_item,
     load_active_path_items,
+    pin_resource_to_item,
     update_item_status,
 )
 
@@ -13,9 +14,10 @@ class _FakeConn:
         self.owner = owner
         self.executes: list[tuple] = []
         self.path_id = 7
+        self.resource_owned = True  # SELECT 1 FROM resources ... 命中与否
         self.items = [
-            {"id": 1, "sequence": 1, "concept": "建立直觉", "objective": "o1", "rationale": "r1", "mastery_status": "done"},
-            {"id": 2, "sequence": 2, "concept": "数学推导", "objective": "o2", "rationale": "r2", "mastery_status": "not_started"},
+            {"id": 1, "sequence": 1, "concept": "建立直觉", "objective": "o1", "rationale": "r1", "mastery_status": "done", "pinned_resource_id": ""},
+            {"id": 2, "sequence": 2, "concept": "数学推导", "objective": "o2", "rationale": "r2", "mastery_status": "not_started", "pinned_resource_id": ""},
         ]
         self.resource_rows = [
             {"resource_id": "11", "concept": "数学推导", "type": "doc", "title": "推导讲解", "created_at": 2},
@@ -26,6 +28,8 @@ class _FakeConn:
     async def fetchval(self, query, *args):
         if "FROM learning_paths lp" in query:
             return self.path_id
+        if "SELECT 1 FROM resources" in query:
+            return 1 if self.resource_owned else None
         if "SELECT sequence FROM path_items" in query:
             return 2
         if "RETURNING id" in query:
@@ -134,3 +138,51 @@ async def test_insert_remedial_item_shifts_sequence_and_inserts():
     assert result.item_id == 99
     shift = [args for op, args in pool.conn.executes if op == "update" and len(args) == 2]
     assert (7, 2) in shift  # path_id=7 的 sequence>2 后移
+
+
+async def test_pin_resource_to_item_sets_resource_id():
+    pool = _FakePool()
+
+    result = await pin_resource_to_item(
+        2, "11", user_id="student-a", tenant_id="demo", pg_pool=pool
+    )
+
+    assert result.ok is True
+    assert result.goal_progress == round(2 / 3, 4)
+    pinned = [args for op, args in pool.conn.executes if op == "update" and args == (2, "11")]
+    assert pinned, "应把 path_item=2 的 resource_id 设为 11"
+
+
+async def test_pin_resource_empty_unbinds():
+    pool = _FakePool()
+
+    result = await pin_resource_to_item(
+        2, "", user_id="student-a", tenant_id="demo", pg_pool=pool
+    )
+
+    assert result.ok is True
+    # 空 resource_id 解绑：写 NULL，且不做资源归属校验
+    assert any(op == "update" and args == (2, None) for op, args in pool.conn.executes)
+
+
+async def test_pin_resource_rejects_unowned_resource():
+    conn = _FakeConn()
+    conn.resource_owned = False
+    pool = _FakePool(conn)
+
+    with pytest.raises(PathOwnershipError):
+        await pin_resource_to_item(2, "999", user_id="student-a", tenant_id="demo", pg_pool=pool)
+
+
+async def test_pin_resource_forbidden_for_other_user():
+    pool = _FakePool(_FakeConn(owner=("owner-b", "demo")))
+
+    with pytest.raises(PathOwnershipError):
+        await pin_resource_to_item(2, "11", user_id="student-a", tenant_id="demo", pg_pool=pool)
+
+
+async def test_pin_resource_degrades_without_pg():
+    result = await pin_resource_to_item(2, "11", user_id="u", tenant_id="t", pg_pool=None)
+
+    assert result.ok is False
+    assert "pg:unavailable" in result.degraded

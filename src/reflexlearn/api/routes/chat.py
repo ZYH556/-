@@ -85,6 +85,12 @@ async def event_stream(
     final_path: dict = {}
     try:
         async for event in run_session(message, user_id, session_id, tenant_id):
+            # PERF-A 增量帧：generator 经 custom 通道上抛的 token 增量，转 resource_delta SSE。
+            if "__stream__" in event:
+                delta = event["__stream__"]
+                if isinstance(delta, dict):
+                    yield sse_event("resource_delta", _safe_delta(gateway, delta))
+                continue
             for node_name, node_output in event.items():
                 if isinstance(node_output, dict):
                     await _record_trace(
@@ -272,6 +278,16 @@ async def _persist_outcome(
         outcome=outcome,
         pg_pool=pg_pool,
     )
+
+
+def _safe_delta(gateway: SafetyGateway, delta: dict) -> dict:
+    """增量帧透传 task_id/type/reset，仅对文本做输出安全脱敏（末帧完整卡片仍会再脱敏一次）。"""
+    return {
+        "task_id": str(delta.get("task_id", "")),
+        "type": str(delta.get("type", "doc")),
+        "delta": gateway.check_output(str(delta.get("delta", ""))).redacted_text,
+        "reset": bool(delta.get("reset", False)),
+    }
 
 
 def _trace_payload(node_name: str, node_output: dict) -> dict:

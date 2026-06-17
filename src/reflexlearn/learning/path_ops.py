@@ -11,41 +11,16 @@ from __future__ import annotations
 
 import logging
 
-from pydantic import BaseModel, Field
+from reflexlearn.learning.path_models import (
+    PathItemView,
+    PathOpResult,
+    PathOwnershipError,
+)
+from reflexlearn.learning.path_resources import merge_resources, resources_by_concept, resources_by_id
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_ITEM_STATUSES = ("not_started", "in_progress", "done")
-
-
-class PathItemResource(BaseModel):
-    resource_id: str
-    title: str
-    type: str = ""
-
-
-class PathItemView(BaseModel):
-    item_id: int
-    sequence: int
-    concept: str = ""
-    objective: str = ""
-    rationale: str = ""
-    mastery_status: str = "not_started"
-    resources: list[PathItemResource] = Field(default_factory=list)
-
-
-class PathOpResult(BaseModel):
-    ok: bool
-    item_id: int = 0
-    mastery_status: str = ""
-    goal_progress: float = 0.0
-    done_items: int = 0
-    total_items: int = 0
-    degraded: list[str] = Field(default_factory=list)
-
-
-class PathOwnershipError(Exception):
-    """节点不属于当前用户/租户。"""
 
 
 async def load_active_path_items(*, user_id: str, tenant_id: str, pg_pool) -> list[PathItemView]:
@@ -70,7 +45,8 @@ async def load_active_path_items(*, user_id: str, tenant_id: str, pg_pool) -> li
             rows = await conn.fetch(
                 """
                 SELECT id, sequence, concept, objective, rationale,
-                       COALESCE(mastery_status, 'not_started') AS mastery_status
+                       COALESCE(mastery_status, 'not_started') AS mastery_status,
+                       COALESCE(resource_id::text, '') AS pinned_resource_id
                 FROM path_items WHERE path_id=$1
                 ORDER BY sequence, id
                 """,
@@ -79,9 +55,12 @@ async def load_active_path_items(*, user_id: str, tenant_id: str, pg_pool) -> li
             # 节点按 concept 自动关联资源（批量查一次，内存分组）：让路径每一步
             # 有具体资源支撑，无需手动绑定。匹配不上的泛节点（如「建立直觉」）资源为空。
             concepts = [str(row["concept"]) for row in rows if row["concept"]]
-            by_concept = await _resources_by_concept(
+            by_concept = await resources_by_concept(
                 conn, concepts, user_id=user_id, tenant_id=tenant_id
             )
+            # 用户显式绑定的资源（path_items.resource_id）：置顶 + 标 pinned
+            pinned_ids = [str(row["pinned_resource_id"]) for row in rows if row["pinned_resource_id"]]
+            pinned_map = await resources_by_id(conn, pinned_ids)
         return [
             PathItemView(
                 item_id=int(row["id"]),
@@ -90,45 +69,16 @@ async def load_active_path_items(*, user_id: str, tenant_id: str, pg_pool) -> li
                 objective=str(row["objective"] or ""),
                 rationale=str(row["rationale"] or ""),
                 mastery_status=str(row["mastery_status"]),
-                resources=by_concept.get(str(row["concept"] or ""), []),
+                resources=merge_resources(
+                    pinned_map.get(str(row["pinned_resource_id"])),
+                    by_concept.get(str(row["concept"] or ""), []),
+                ),
             )
             for row in rows
         ]
     except Exception as exc:
         logger.info("active path items degraded: %s", exc)
         return []
-
-
-async def _resources_by_concept(
-    conn, concepts: list[str], *, user_id: str, tenant_id: str
-) -> dict[str, list[PathItemResource]]:
-    """按 concept 批量查资源，每 concept 取前 2 个（created_at 倒序）。"""
-    if not concepts:
-        return {}
-    rows = await conn.fetch(
-        """
-        SELECT id::text AS resource_id, concept, type,
-               COALESCE(meta->>'title', type) AS title, created_at
-        FROM resources
-        WHERE user_id=$1 AND tenant_id=$2 AND concept = ANY($3::text[])
-        ORDER BY created_at DESC
-        """,
-        user_id,
-        tenant_id,
-        list(set(concepts)),
-    )
-    grouped: dict[str, list[PathItemResource]] = {}
-    for row in rows:
-        bucket = grouped.setdefault(str(row["concept"]), [])
-        if len(bucket) < 2:
-            bucket.append(
-                PathItemResource(
-                    resource_id=row["resource_id"],
-                    title=str(row["title"] or ""),
-                    type=str(row["type"] or ""),
-                )
-            )
-    return grouped
 
 
 async def _owned_path_id(conn, item_id: int, *, user_id: str, tenant_id: str) -> int:
@@ -264,3 +214,50 @@ async def insert_remedial_item(
     except Exception as exc:
         logger.info("path remedial insert degraded: %s", exc)
         return PathOpResult(ok=False, degraded=["pg:write_failed"])
+
+
+async def pin_resource_to_item(
+    item_id: int,
+    resource_id: str,
+    *,
+    user_id: str,
+    tenant_id: str,
+    pg_pool,
+) -> PathOpResult:
+    """把资源显式绑定到路径节点（path_items.resource_id）。节点与资源都须属本
+    用户/租户——任一不属拒绝（ACL 命门：绑别人的资源 = 越权读）。资源可置空解绑。"""
+    if pg_pool is None:
+        return PathOpResult(ok=False, item_id=item_id, degraded=["pg:unavailable"])
+    try:
+        async with pg_pool.acquire() as conn:
+            path_id = await _owned_path_id(conn, item_id, user_id=user_id, tenant_id=tenant_id)
+            if resource_id:
+                owned = await conn.fetchval(
+                    """
+                    SELECT 1 FROM resources
+                    WHERE id::text=$1 AND user_id=$2 AND tenant_id=$3
+                    """,
+                    resource_id,
+                    user_id,
+                    tenant_id,
+                )
+                if not owned:
+                    raise PathOwnershipError("resource_forbidden")
+            await conn.execute(
+                "UPDATE path_items SET resource_id=$2 WHERE id=$1",
+                item_id,
+                resource_id or None,
+            )
+            progress, done, total = await _recalc_goal_progress(conn, path_id)
+        return PathOpResult(
+            ok=True,
+            item_id=item_id,
+            goal_progress=progress,
+            done_items=done,
+            total_items=total,
+        )
+    except (LookupError, PathOwnershipError):
+        raise
+    except Exception as exc:
+        logger.info("path pin resource degraded: %s", exc)
+        return PathOpResult(ok=False, item_id=item_id, degraded=["pg:write_failed"])

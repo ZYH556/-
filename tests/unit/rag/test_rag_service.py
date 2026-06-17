@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import reflexlearn.common.embedding as emb
@@ -216,3 +218,36 @@ async def test_all_routes_fail_returns_empty(monkeypatch):
     svc = RAGService(neo4j=BoomNeo4j(), reranker=_IdentityReranker(), settings=_FakeSettings())
     res = await svc.retrieve("线性回归", acl={"tenant_id": "default"}, query_type="concept_dependency")
     assert res.chunks == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_retrieve_keeps_event_loop_responsive(monkeypatch):
+    """并发 retrieve（含同步 embedding/rerank）不应阻塞事件循环——fan-out 并行化根因守门。
+
+    embed_query 用同步 time.sleep 模拟重 CPU；若仍同步调用会卡死 loop，并发 retrieve 期间
+    probe 协程无法推进。修复后 embed/rerank 经 run_model 丢线程，probe 应能穿插完成。
+    """
+    import time as _t
+
+    monkeypatch.setattr(emb, "embed_query", lambda q: (_t.sleep(0.15), [0.1] * emb.EMBED_DIM)[1])
+    monkeypatch.setattr("reflexlearn.common.db.get_qdrant",
+                        lambda: _FakeQdrant([_Hit("id1", 0.9, {"content": "c", "source": "s"})], _scroll_pts()))
+    svc = RAGService(reranker=_IdentityReranker(), settings=_FakeSettings(graph=False))
+
+    progressed = 0
+
+    async def probe():
+        nonlocal progressed
+        for _ in range(5):
+            await asyncio.sleep(0.02)
+            progressed += 1
+
+    async def two_retrieves():
+        await asyncio.gather(
+            svc.retrieve("线性回归", acl={"tenant_id": "default"}),
+            svc.retrieve("梯度下降", acl={"tenant_id": "default"}),
+        )
+
+    await asyncio.gather(two_retrieves(), probe())
+    # 两次 retrieve 的同步 embed 串行约 0.3s；probe 若被阻塞则 progressed 会很小。
+    assert progressed == 5

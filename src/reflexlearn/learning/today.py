@@ -54,6 +54,7 @@ class TodayPathResource(BaseModel):
     resource_id: str
     title: str
     type: str = ""
+    pinned: bool = False  # 用户显式绑定到本节点
 
 
 class TodayLearningPathNode(BaseModel):
@@ -241,6 +242,7 @@ def _real_path_nodes(
                 resource_id=_text(res.get("resource_id")),
                 title=_text(res.get("title"), "学习资源"),
                 type=_text(res.get("type")),
+                pinned=bool(res.get("pinned")),
             )
             for res in (raw_resources if isinstance(raw_resources, Sequence) and not isinstance(raw_resources, str) else [])
             if isinstance(res, Mapping) and _text(res.get("resource_id"))

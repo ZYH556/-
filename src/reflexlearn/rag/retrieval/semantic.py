@@ -33,11 +33,13 @@ async def semantic_search(
         logger.warning("semantic degraded (qdrant precheck failed): %s", e)
         return []
 
-    # 2) 查询向量化（embedding 不可用即降级该路）
+    # 2) 查询向量化（embedding 不可用即降级该路）。同步 encode 经 run_model 丢线程，
+    #    不阻塞事件循环——否则并发 fan-out 的多资源 retrieve 会被逐个串行（docs/19 §6）。
     try:
         from reflexlearn.common.embedding import embed_query
+        from reflexlearn.rag.model_infer import run_model
 
-        vector = embed_query(query)
+        vector = await run_model(embed_query, query)
     except Exception as e:
         logger.info("semantic degraded (embedding unavailable): %s", e)
         return []

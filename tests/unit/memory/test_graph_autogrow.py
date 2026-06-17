@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import reflexlearn.orchestration.graph as graph_mod
+import reflexlearn.orchestration.persist as persist_mod
 from reflexlearn.common.config import get_settings
 from reflexlearn.memory import session_store
 from reflexlearn.memory.graph_autogrow import autogrow_session_graph
@@ -10,7 +11,8 @@ from reflexlearn.memory.graph_autogrow import autogrow_session_graph
 
 class _FakeGraph:
     async def astream(self, state, stream_mode):
-        yield {"assemble": {"resource_bundle": {"total": 1}, "learner_profile": {"goal": "g"}}}
+        # stream_mode=["updates","custom"]：yield (mode, chunk) 元组（PERF-A 新契约）
+        yield ("updates", {"assemble": {"resource_bundle": {"total": 1}, "learner_profile": {"goal": "g"}}})
 
 
 @pytest.mark.asyncio
@@ -36,7 +38,7 @@ async def test_run_session_triggers_graph_autogrow_after_persist(monkeypatch):
     monkeypatch.setenv("ENABLE_GRAPH_AUTOGROW", "true")
     get_settings.cache_clear()
     monkeypatch.setattr(graph_mod, "build_graph", lambda _llm: _FakeGraph())
-    monkeypatch.setattr(graph_mod, "autogrow_session_graph", fake_autogrow, raising=False)
+    monkeypatch.setattr(persist_mod, "autogrow_session_graph", fake_autogrow)
     monkeypatch.setattr(session_store, "load", load)
     monkeypatch.setattr(session_store, "persist", persist)
     monkeypatch.setattr(session_store, "load_profile", load_profile)
@@ -44,6 +46,7 @@ async def test_run_session_triggers_graph_autogrow_after_persist(monkeypatch):
     try:
         async for _ in graph_mod.run_session("线性回归", "u1", "sid", "tenant-a"):
             pass
+        await graph_mod.drain_persist_tasks()  # PERF-C：PERSIST 后台化，断言前收尾
     finally:
         get_settings.cache_clear()
 

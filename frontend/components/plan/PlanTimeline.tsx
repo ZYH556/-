@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Check, CircleDot, MoveRight } from "lucide-react";
+import { ArrowUpRight, Check, CircleDot, MoveRight, Pin } from "lucide-react";
 
 import { updatePlanItemStatus } from "@/lib/planApi";
 import { WsCard } from "@/components/workspace";
@@ -141,7 +141,11 @@ export function PlanTimeline({ nodes, progress, recommendation, token, onChanged
                               href={`/resources/${encodeURIComponent(res.resource_id)}`}
                               className="inline-flex items-center gap-1.5 text-sm text-[var(--ws-accent)] hover:text-[var(--ws-ink)]"
                             >
-                              <ResIcon size={13} aria-hidden />
+                              {res.pinned ? (
+                                <Pin size={12} className="shrink-0" aria-label="已固定" />
+                              ) : (
+                                <ResIcon size={13} aria-hidden />
+                              )}
                               <span className="line-clamp-1">{res.title}</span>
                               <ArrowUpRight size={12} className="shrink-0" aria-hidden />
                             </Link>

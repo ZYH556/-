@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
@@ -17,8 +19,11 @@ from reflexlearn.orchestration.nodes.reflection.metacognition import metacogniti
 from reflexlearn.orchestration.nodes.collaboration.pipeline import pipeline_node
 from reflexlearn.orchestration.nodes.planning.path_plan import path_plan_node
 from reflexlearn.memory.manager import MemoryManager, recall_memory_node
-from reflexlearn.memory.graph_autogrow import autogrow_session_graph
-from reflexlearn.orchestration.schemas import Reflection
+from reflexlearn.orchestration.persist import (
+    drain_persist_tasks,
+    persist_session,
+    spawn_persist,
+)
 
 from reflexlearn.skills.retrieve import RetrieveSkill
 from reflexlearn.skills.code_gen import CodeGenSkill
@@ -31,6 +36,8 @@ from reflexlearn.skills.video_gen import VideoGenSkill
 from reflexlearn.skills.path_plan import PathPlanSkill
 from reflexlearn.llm_gateway.gateway import LLMGateway
 
+
+logger = logging.getLogger(__name__)
 
 def build_graph(llm: LLMGateway | None = None):
     if llm is None:
@@ -227,7 +234,14 @@ async def run_session(
     # 旁路收集 assemble 的资源包摘要，作为本轮 assistant 轮写入 Redis（不改 yield 行为）
     assistant_summary: str | None = None
     final_profile: dict = prior_profile
-    async for event in graph.astream(initial_state, stream_mode="updates"):
+    # stream_mode=["updates","custom"]：updates=节点输出（原契约不变），custom=生成增量
+    # （PERF-A，generator 经 get_stream_writer 上抛）。custom 帧包成 {"__stream__": ...} yield，
+    # chat 层转 resource_delta SSE；非 custom 帧仍是原 {node_name: output} dict。
+    async for mode, chunk in graph.astream(initial_state, stream_mode=["updates", "custom"]):
+        if mode == "custom":
+            yield {"__stream__": chunk}
+            continue
+        event = chunk
         for node_output in event.values():
             if isinstance(node_output, dict) and node_output.get("resource_bundle"):
                 total = node_output["resource_bundle"].get("total", 0)
@@ -236,62 +250,21 @@ async def run_session(
                 final_profile = node_output["learner_profile"]
         yield event
 
-    # ② PERSIST：写回 Redis（全程降级，不影响已 yield 的响应）。
+    # ② PERSIST：后台化（PERF-C）。done 帧不再等待 Redis 写回 / 递归摘要 LLM / promote / autogrow，
+    # 这些在 done 之后的后台 task 里跑（全程降级，异常吞掉）。单测用 drain_persist_tasks() 收尾。
     if multi_turn and scoped_session_id:
-        try:
-            from reflexlearn.memory import session_store
-            from reflexlearn.memory.recursive_summary import add_and_compress
-            from reflexlearn.memory.trim import TrimConfig
-
-            new_user = {"role": "user", "content": message}
-            new_assistant = {
-                "role": "assistant",
-                "content": assistant_summary or "[本轮已完成]",
-            }
-            full_messages = prior_messages + [new_user, new_assistant]
-
-            # 超出最近窗口的旧轮次压进递归摘要（无 LLM 凭证 → add_and_compress 内部规则截断降级）
-            recent_count = TrimConfig.from_settings().recent_turns * 2
-            new_layers = summary_layers
-            if len(full_messages) > recent_count:
-                overflow = full_messages[:-recent_count]
-                new_layers = await add_and_compress(summary_layers, overflow, llm)
-
-            await session_store.persist(
-                scoped_session_id,
-                messages=full_messages,
-                summary_layers=new_layers,
+        spawn_persist(
+            persist_session(
+                scoped_session_id=scoped_session_id,
+                message=message,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                session_id=session_id,
+                prior_messages=prior_messages,
+                summary_layers=summary_layers,
+                assistant_summary=assistant_summary,
+                final_profile=final_profile,
+                settings=settings,
+                llm=llm,
             )
-            if final_profile:
-                await session_store.save_profile(
-                    user_id,
-                    tenant_id=tenant_id,
-                    profile=final_profile,
-                )
-            if getattr(settings, "enable_promote", False):
-                reflection = Reflection(
-                    task_type="session",
-                    failure_type="none" if assistant_summary else "incomplete",
-                    cause=f"学习目标：{message}；结果：{assistant_summary or '[未形成资源包]'}",
-                    fix_strategy="复用本轮学习画像、资源规划和质量校验经验。",
-                    success=bool(assistant_summary),
-                )
-                await MemoryManager().promote_session(reflection=reflection, user_id=user_id)
-            if getattr(settings, "enable_graph_autogrow", False):
-                try:
-                    from reflexlearn.common.db import get_neo4j
-
-                    neo4j = get_neo4j()
-                except Exception:
-                    neo4j = None
-                await autogrow_session_graph(
-                    text=f"{message}\n{assistant_summary or '[本轮已完成]'}",
-                    tenant_id=tenant_id,
-                    visibility="public",
-                    doc_id=f"session:{tenant_id}:{user_id}:{session_id}",
-                    neo4j=neo4j,
-                    settings=settings,
-                    gateway=llm,
-                )
-        except Exception:
-            pass
+        )

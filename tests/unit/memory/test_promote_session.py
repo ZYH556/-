@@ -5,6 +5,7 @@ import json
 import pytest
 
 import reflexlearn.orchestration.graph as graph_mod
+import reflexlearn.orchestration.persist as persist_mod
 from reflexlearn.memory import session_store
 from reflexlearn.orchestration.graph import run_session
 
@@ -71,7 +72,7 @@ async def test_run_session_promotes_success_reflection_when_enabled(monkeypatch)
     _inject_graph(monkeypatch)
     monkeypatch.setenv("ENABLE_PROMOTE", "true")
     get_settings.cache_clear()
-    monkeypatch.setattr(graph_mod, "MemoryManager", _FakeMemoryManager)
+    monkeypatch.setattr(persist_mod, "MemoryManager", _FakeMemoryManager)
 
     async def _load_profile(user_id, *, tenant_id):
         return {}
@@ -93,6 +94,9 @@ async def test_run_session_promotes_success_reflection_when_enabled(monkeypatch)
     try:
         async for _ in run_session("学习线性回归", "u1", "sid-promote"):
             pass
+        from reflexlearn.orchestration.graph import drain_persist_tasks
+
+        await drain_persist_tasks()  # PERF-C：PERSIST 后台化，断言前收尾
     finally:
         get_settings.cache_clear()
 

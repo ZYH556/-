@@ -8,6 +8,7 @@ import type {
   JudgeVerdict,
   LearningPath,
   ResourceCard,
+  ResourceDelta,
 } from "./types";
 
 export type ChatStatus = "idle" | "streaming" | "done" | "error";
@@ -30,6 +31,7 @@ type Action =
   | { type: "start"; message: string; displayMessage?: string }
   | { type: "agent_step"; payload: AgentStep }
   | { type: "resource_card"; payload: ResourceCard }
+  | { type: "resource_delta"; payload: ResourceDelta }
   | { type: "debate_round"; payload: DebateRound }
   | { type: "judge_verdict"; payload: JudgeVerdict }
   | { type: "learning_path"; payload: LearningPath }
@@ -70,7 +72,22 @@ function reducer(turns: Turn[], action: Action): Turn[] {
         const cards = new Map(t.cards);
         // 生成阶段与 assemble 阶段会重复 emit 同一卡片，按 task_id 去重（后到的更完整、覆盖前者）
         const key = action.payload.task_id || `card-${cards.size}`;
-        cards.set(key, action.payload);
+        cards.set(key, { ...action.payload, streaming: false });
+        return { ...t, cards };
+      });
+    case "resource_delta":
+      return updateLast(turns, (t) => {
+        const cards = new Map(t.cards);
+        // 逐 token 增量累积成「流式卡片」，末帧 resource_card 落定后覆盖为完整内容。
+        const key = action.payload.task_id || `card-${cards.size}`;
+        const prev = cards.get(key);
+        const base = action.payload.reset || !prev ? "" : prev.content;
+        cards.set(key, {
+          type: action.payload.type || prev?.type || "doc",
+          task_id: action.payload.task_id,
+          content: base + action.payload.delta,
+          streaming: true,
+        });
         return { ...t, cards };
       });
     case "debate_round":
@@ -167,6 +184,9 @@ export function useChat(token: string) {
             break;
           case "resource_card":
             dispatch({ type: "resource_card", payload: msg.data as ResourceCard });
+            break;
+          case "resource_delta":
+            dispatch({ type: "resource_delta", payload: msg.data as ResourceDelta });
             break;
           case "debate_round":
             dispatch({ type: "debate_round", payload: msg.data as DebateRound });

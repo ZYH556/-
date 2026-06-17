@@ -91,7 +91,7 @@ class RAGService:
             return RetrievalResult(chunks=[], strategy_used=str(strategy), routes_used=routes_used)
 
         # 3) rerank 精排（串行，gather 之后）| weighted_sort 降级
-        ranked = self._rerank_or_fallback(query, fused, settings)
+        ranked = await self._rerank_or_fallback(query, fused, settings)
 
         # 4) token 预算裁剪
         final = self._trim_to_budget(ranked, strategy.top_k)
@@ -122,14 +122,18 @@ class RAGService:
             neo4j = get_neo4j()
         return await graph_expand(neo4j, query, acl, keyword_index=kw_index)
 
-    def _rerank_or_fallback(self, query, chunks, settings) -> list[ChunkMeta]:
+    async def _rerank_or_fallback(self, query, chunks, settings) -> list[ChunkMeta]:
         if not getattr(settings, "enable_rerank", True):
             return weighted_sort(chunks)
         reranker = self._reranker
         if reranker is None:
             from reflexlearn.rag.ranking import rerank as reranker
         try:
-            return reranker.rerank(query, chunks)
+            # cross-encoder 推理同步且重，经 run_model 丢线程 + 全局串行（不阻塞事件循环、
+            # 不与 embedding 并发），让并发 fan-out 的 LLM 调用得以重叠（docs/19 §6）。
+            from reflexlearn.rag.model_infer import run_model
+
+            return await run_model(reranker.rerank, query, chunks)
         except Exception as e:  # RerankerUnavailable / 推理异常 → 降级
             logger.info("rerank degraded -> weighted_sort: %s", e)
             observe_degradation("rag", "rerank_degraded")

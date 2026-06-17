@@ -23,6 +23,17 @@ def routed_model(settings) -> str:
     return raw if raw.startswith("openai/") else f"openai/{raw}"
 
 
+def routed_model_for(raw: str) -> str:
+    """把任意中转站模型名规范化为 openai/{name}（与 routed_model 同形，供便宜档选型）。"""
+    name = (raw or "").strip().removeprefix("openai/")
+    return f"openai/{name}"
+
+
+def bare_model(model: str) -> str:
+    """去掉 openai/ 前缀，得到中转站 wire 层要的裸模型名。"""
+    return (model or "").strip().removeprefix("openai/")
+
+
 def wire_api(settings) -> str:
     raw = settings.openai_compat_wire_api.strip().lower().replace("-", "_")
     return "responses" if raw == "responses" else "chat_completions"
@@ -35,8 +46,11 @@ def payload(
     schema: Optional[type[BaseModel]],
     temperature: float,
     api: str,
+    model: Optional[str] = None,
 ) -> dict:
-    body: dict = {"model": model_name(settings), "temperature": temperature}
+    # model 显式传入时用它（便宜档选型）；否则取配置主模型。
+    name = bare_model(model) if model else model_name(settings)
+    body: dict = {"model": name, "temperature": temperature}
     if api == "responses":
         body["input"] = messages
         if schema:
@@ -69,6 +83,51 @@ def responses_url(settings) -> str:
     if base.endswith("/responses"):
         return base
     return f"{base}/responses"
+
+
+def stream_payload(
+    settings,
+    *,
+    messages: list[dict],
+    temperature: float,
+    api: str,
+    model: Optional[str] = None,
+) -> dict:
+    """流式请求体：普通 payload + stream=True。流式不支持 schema（JSON 需整体解析）。"""
+    body = payload(
+        settings, messages=messages, schema=None, temperature=temperature, api=api, model=model
+    )
+    body["stream"] = True
+    return body
+
+
+def stream_delta(event: Mapping[str, object], api: str) -> str:
+    """从单个 SSE chunk(JSON) 提取增量文本；非文本/控制帧返回空串。"""
+    if api == "responses":
+        return _responses_stream_delta(event)
+    return _chat_stream_delta(event)
+
+
+def _chat_stream_delta(event: Mapping[str, object]) -> str:
+    choices = event.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0]
+    if not isinstance(first, Mapping):
+        return ""
+    delta = first.get("delta")
+    if not isinstance(delta, Mapping):
+        return ""
+    content = delta.get("content")
+    return content if isinstance(content, str) else ""
+
+
+def _responses_stream_delta(event: Mapping[str, object]) -> str:
+    # responses 流式：增量帧 type=response.output_text.delta，文本在 delta 字段。
+    if event.get("type") == "response.output_text.delta":
+        delta = event.get("delta")
+        return delta if isinstance(delta, str) else ""
+    return ""
 
 
 def response_text(data: Mapping[str, object], api: str) -> str:

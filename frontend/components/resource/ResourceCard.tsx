@@ -27,6 +27,12 @@ export function ResourceCard({ card }: { card: Card }) {
           {meta.label}
         </span>
         <span className="text-xs text-slate-400">{card.task_id}</span>
+        {card.streaming ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+            生成中
+          </span>
+        ) : null}
       </div>
       {card.type === "mindmap" ? (
         <MindmapCard content={card.content} />

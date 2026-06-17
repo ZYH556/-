@@ -6,21 +6,16 @@ from typing import Optional
 from pydantic import BaseModel
 
 from reflexlearn.common.config import get_settings
-from reflexlearn.llm_gateway import openai_compat
+from reflexlearn.llm_gateway import http_client, openai_compat, streaming as _streaming
+from reflexlearn.llm_gateway.models import Completion, StreamChunk
 from reflexlearn.observability.metrics import observe_degradation, observe_llm
 
-
-class Completion(BaseModel):
-    text: str
-    model_used: str = ""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost_usd: float = 0.0
-    latency_ms: int = 0
+__all__ = ["LLMGateway", "Completion", "StreamChunk", "CHEAP_TASK_TYPES"]
 
 
-# 低价值 / 高频任务走便宜档模型（docs §2「按价值分级管理上下文」的成本感知路由）。
-CHEAP_TASK_TYPES = {"summary"}
+# 评判/低价值类任务走便宜档模型（docs §2 成本感知路由 + docs/19 PERF-B 砍前置时延）。
+# 只含「评判/反思/摘要」——绝不含 generation/planning/profiling（它们定核心产出与个性化）。
+CHEAP_TASK_TYPES = {"summary", "verification", "judgment", "reasoning"}
 
 
 class LLMGateway:
@@ -112,6 +107,18 @@ class LLMGateway:
             observe_degradation("llm", type(e).__name__)
             raise
 
+    def complete_stream(
+        self,
+        messages: list[dict],
+        *,
+        task_type: str = "generation",
+        temperature: float = 0.7,
+    ):
+        """逐 StreamChunk yield 文本增量（PERF-A）；实现见 llm_gateway.streaming，降级铁律同。"""
+        return _streaming.complete_stream(
+            self, messages, task_type=task_type, temperature=temperature
+        )
+
     async def _complete_openai_compat(
         self,
         *,
@@ -121,8 +128,6 @@ class LLMGateway:
         schema: Optional[type[BaseModel]],
         temperature: float,
     ) -> Completion:
-        import httpx
-
         start = time.time()
         wire_api = openai_compat.wire_api(self._settings)
         payload = openai_compat.payload(
@@ -131,24 +136,21 @@ class LLMGateway:
             schema=schema,
             temperature=temperature,
             api=wire_api,
+            model=model,  # 便宜档选型时把实际模型名带进 wire payload
         )
         headers = {
             "Authorization": f"Bearer {self._settings.openai_compat_api_key}",
             "Content-Type": "application/json",
         }
-        # connect 超时单独设短（中转站 SYN 无响应时 5s 快速降级，不等满总超时）；
-        # read/write/pool 用 llm_request_timeout_s 容纳生成耗时（PERF-C 超时分级）。
-        timeout = httpx.Timeout(
-            self._settings.llm_request_timeout_s,
-            connect=self._settings.llm_connect_timeout_s,
-        )
+        # 复用共享 client（keep-alive 连接池，省每调用 TCP+TLS 握手 — PERF-C）；
+        # 其 timeout 已按 read/connect 分级（中转站 SYN 黑洞时 connect 5s 快速降级）。
+        client = http_client.get_async_client(self._settings)
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(
-                    openai_compat.request_url(self._settings, wire_api),
-                    headers=headers,
-                    json=payload,
-                )
+            resp = await client.post(
+                openai_compat.request_url(self._settings, wire_api),
+                headers=headers,
+                json=payload,
+            )
             resp.raise_for_status()
             data = resp.json()
             latency = int((time.time() - start) * 1000)
@@ -184,12 +186,15 @@ class LLMGateway:
     def _select_model(self, task_type: str) -> str:
         s = self._settings
         cheap = task_type in CHEAP_TASK_TYPES
-        # 低价值任务（如 summary）成本感知路由：显式覆盖优先，否则按 provider 选便宜/快档。
-        # 非低价值任务的选型与改造前逐字节一致（零回归）。
+        # 中转站优先：评判类任务在配了便宜档时走它降时延，否则主模型（默认空=零回归）。
+        if self._has_openai_compat():
+            if cheap and s.openai_compat_cheap_model:
+                return openai_compat.routed_model_for(s.openai_compat_cheap_model)
+            return openai_compat.routed_model(s)
+        # 非中转站：summary_model 显式覆盖优先，否则按 provider 选便宜/快档。
+        # 非便宜任务的选型与改造前逐字节一致（零回归）。
         if cheap and s.summary_model:
             return s.summary_model
-        if self._has_openai_compat():
-            return openai_compat.routed_model(s)
         if s.deepseek_api_key:
             return "deepseek/deepseek-chat"  # deepseek-chat 已是便宜档，无更低档
         if s.qwen_api_key:
@@ -216,7 +221,15 @@ class LLMGateway:
         return ""
 
     def _is_openai_compat_model(self, model: str) -> bool:
-        return self._has_openai_compat() and model == openai_compat.routed_model(self._settings)
+        if not self._has_openai_compat():
+            return False
+        s = self._settings
+        if model == openai_compat.routed_model(s):
+            return True
+        return bool(
+            s.openai_compat_cheap_model
+            and model == openai_compat.routed_model_for(s.openai_compat_cheap_model)
+        )
 
     def _has_openai_compat(self) -> bool:
         return openai_compat.has_openai_compat(self._settings)

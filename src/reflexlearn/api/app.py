@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -30,7 +32,20 @@ from reflexlearn.security.csrf import CSRFMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with lifespan_db():
-        yield
+        # PERF-D：后台预热 bge 模型（不阻塞启动）；warm_models 自带门控 + 全程降级。
+        from reflexlearn.rag.warmup import warm_models
+
+        warm_task = asyncio.ensure_future(warm_models(get_settings()))
+        try:
+            yield
+        finally:
+            # PERF-C：关停时收尾后台 PERSIST + 关闭共享 LLM client
+            from reflexlearn.llm_gateway.http_client import aclose_async_client
+            from reflexlearn.orchestration.graph import drain_persist_tasks
+
+            warm_task.cancel()
+            await drain_persist_tasks()
+            await aclose_async_client()
 
 
 def _split_csv(value: str) -> list[str]:

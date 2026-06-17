@@ -129,3 +129,52 @@ async def test_generator_diagnostics_records_internal_stages(monkeypatch, caplog
     assert "generator_diag stage=generation_end" in messages
     assert "generator_diag stage=quality_end" in messages
     assert "generator_diag stage=task_end" in messages
+
+
+class StreamingGenSkill:
+    """读 ctx.delta_sink 并逐段推增量的假生成 Skill（模拟 doc_gen 流式）。"""
+
+    def __init__(self, pieces: list[str]):
+        self.pieces = pieces
+
+    async def run(self, inp, ctx):
+        sink = getattr(ctx, "delta_sink", None)
+        for p in self.pieces:
+            if sink:
+                sink(p)
+        return SkillResult(ok=True, data={"content": "".join(self.pieces)})
+
+
+@pytest.mark.asyncio
+async def test_generator_emits_deltas_through_stream_writer(monkeypatch):
+    import reflexlearn.orchestration.nodes.core.generator as gen_mod
+
+    frames: list[dict] = []
+    monkeypatch.setattr(gen_mod, "_stream_writer", lambda: frames.append)
+
+    gen = StreamingGenSkill(["线性", "回归"])
+    quality = FakeQualitySkill([{"passed": True, "issues": [], "fixable": True}])
+
+    result = await generate_resource(base_state(gen, quality))
+
+    assert result["completed"][0]["status"] == "passed"
+    # 首帧 reset 清场，随后逐 token 增量；每帧带 task_id 供前端按 fan-out 分路
+    assert frames[0]["reset"] is True
+    deltas = [f["delta"] for f in frames if f["delta"]]
+    assert deltas == ["线性", "回归"]
+    assert all(f["task_id"] == "task-1" for f in frames)
+
+
+@pytest.mark.asyncio
+async def test_generator_no_writer_skips_streaming(monkeypatch):
+    """无流式 run 上下文（_stream_writer→None）时不构造 sink，照常一次性生成。"""
+    import reflexlearn.orchestration.nodes.core.generator as gen_mod
+
+    monkeypatch.setattr(gen_mod, "_stream_writer", lambda: None)
+
+    gen = StreamingGenSkill(["这是完整文档内容，包含解释与总结，长度足够通过质检。"])
+    quality = FakeQualitySkill([{"passed": True, "issues": [], "fixable": True}])
+
+    result = await generate_resource(base_state(gen, quality))
+
+    assert result["completed"][0]["status"] == "passed"

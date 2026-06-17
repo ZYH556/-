@@ -25,11 +25,18 @@ frontend/pnpm-debug.log*
 # Runtime output
 logs/
 *.log
+output/
+
+# Local visual QA / browser artifacts
+/*.png
+/*.html
+frontend/*.tsbuildinfo
 
 # Local tool caches
 .playwright-mcp/
 .omx/
 .spec-workflow/
+.serena/
 
 # OS / editor
 .DS_Store

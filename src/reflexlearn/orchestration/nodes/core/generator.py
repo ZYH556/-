@@ -35,6 +35,9 @@ async def generate_resource(state: AgentState) -> dict:
     context_text = await _retrieve_context(task, retrieve_skill, ctx)
     issues: list[str] = []
     max_steps = max(1, settings.max_react_steps)
+    # PERF-A：在 LangGraph 流式 run 上下文内取 writer，逐 token 增量经 custom 通道上抛；
+    # 非流式 run / 直接单测调用 → get_stream_writer 抛错 → None → 走一次性生成（零回归）。
+    stream_writer = _stream_writer()
 
     for step in range(max_steps):
         _log_diag("react_step_start", task=task, step=step + 1, status="start")
@@ -48,7 +51,14 @@ async def generate_resource(state: AgentState) -> dict:
             skill=gen_skill_name,
             status="start",
         )
-        gen_result = await _run_generation(task, context_text, issues, skills, ctx)
+        gen_ctx = ctx
+        if stream_writer is not None:
+            # 新一轮生成前发 reset，让前端清空上一轮（质检失败重生成）的残留增量
+            _stream_emit(stream_writer, task, reset=True)
+            gen_ctx = ctx.model_copy(
+                update={"delta_sink": lambda delta: _stream_emit(stream_writer, task, delta=delta)}
+            )
+        gen_result = await _run_generation(task, context_text, issues, skills, gen_ctx)
         _log_diag(
             "generation_end",
             task=task,
@@ -176,6 +186,31 @@ def _generation_spec(spec: dict, issues: list[str]) -> dict:
 def _select_generation_skill(task_type: str, skills: dict):
     skill_name = f"{task_type}_gen"
     return skills.get(skill_name) or skills.get("doc_gen")
+
+
+def _stream_writer():
+    """取 LangGraph custom 流式 writer；非流式 run / 单测直调（无 run 上下文）→ None。"""
+    try:
+        from langgraph.config import get_stream_writer
+
+        return get_stream_writer()
+    except Exception:
+        return None
+
+
+def _stream_emit(writer, task: dict, *, delta: str = "", reset: bool = False) -> None:
+    """经 custom 通道上抛资源增量；带 task_id 供前端区分 fan-out 多路。写失败静默。"""
+    try:
+        writer(
+            {
+                "task_id": task.get("task_id", ""),
+                "type": task.get("type", "doc"),
+                "delta": delta,
+                "reset": reset,
+            }
+        )
+    except Exception:
+        return
 
 
 def _skill_name(skill, fallback: str) -> str:

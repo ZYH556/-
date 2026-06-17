@@ -111,6 +111,10 @@ async def _run_collect(message, user_id, session_id, tenant_id="default"):
     seen = []
     async for event in run_session(message, user_id, session_id, tenant_id):
         seen.extend(event.keys())
+    # PERF-C：PERSIST 后台化，断言持久化副作用前先收尾后台 task
+    from reflexlearn.orchestration.graph import drain_persist_tasks
+
+    await drain_persist_tasks()
     return seen
 
 
@@ -280,3 +284,33 @@ async def test_cross_session_profile_is_loaded_and_saved(monkeypatch):
     assert "历史薄弱点" in saved["weak_points"]
     assert "跨会话薄弱点" in saved["weak_points"]
     assert saved["progress"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_persist_runs_in_background(monkeypatch):
+    """PERF-C：PERSIST 后台化——run_session 消费结束时持久化尚未完成（done 帧不等它）。"""
+    import asyncio
+
+    _inject_fake_llm(monkeypatch)
+    gate = asyncio.Event()
+    done = {"persisted": False}
+
+    async def slow_load(sid):
+        return {"messages": [], "summary_layers": []}
+
+    async def slow_persist(sid, *, messages, summary_layers):
+        await gate.wait()  # 卡住直到测试放行
+        done["persisted"] = True
+        return True
+
+    monkeypatch.setattr(session_store, "load", slow_load)
+    monkeypatch.setattr(session_store, "persist", slow_persist)
+
+    async for _ in run_session("线性回归", "u1", "sid-bg"):
+        pass
+    # 消费完所有图事件（含 done 等价）后，persist 仍卡在 gate 上 → 证明它在后台、未阻塞主流
+    assert done["persisted"] is False
+
+    gate.set()
+    await graph_mod.drain_persist_tasks()
+    assert done["persisted"] is True

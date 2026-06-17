@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ExternalLink, FileQuestion, FolderOpen, NotebookPen } from "lucide-react";
 
 import { ResourceStudyActions } from "@/components/resource/ResourceStudyActions";
+import { PinToPathPanel } from "@/components/resource/PinToPathPanel";
 import { ResourceEmbed } from "@/components/resource/ResourceEmbed";
 import { isExternalHref, viewForResource } from "@/components/resource/resourceView";
 import { EmptyState, Tag } from "@/components/workspace";
@@ -126,6 +127,9 @@ export default function ResourceDetailPage({
             status={detail.study_status}
             onChanged={(status) => setDetail({ ...detail, study_status: status })}
           />
+        </div>
+        <div className="mt-4">
+          <PinToPathPanel token={auth.access_token} resourceId={resource.resource_id} />
         </div>
         {detail.degraded.length > 0 ? (
           <div className="mt-4">

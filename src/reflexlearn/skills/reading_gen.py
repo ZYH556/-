@@ -4,6 +4,7 @@ import time
 
 from reflexlearn.llm_gateway.gateway import LLMGateway
 from reflexlearn.skills.base import SkillContext, SkillResult
+from reflexlearn.skills.streaming import generate_text
 
 
 class ReadingGenSkill:
@@ -43,11 +44,13 @@ class ReadingGenSkill:
         ]
 
         try:
-            completion = await self.llm.complete(messages, task_type="generation")
+            text, model_used = await generate_text(
+                self.llm, messages, task_type="generation", sink=getattr(ctx, "delta_sink", None)
+            )
             duration = int((time.time() - start) * 1000)
             return SkillResult(
                 ok=True,
-                data={"content": completion.text, "model_used": completion.model_used},
+                data={"content": text, "model_used": model_used},
                 duration_ms=duration,
             )
         except Exception as e:

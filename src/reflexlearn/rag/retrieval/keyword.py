@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 
 from reflexlearn.rag.access.acl import acl_check
 from reflexlearn.rag.schemas import ChunkMeta
@@ -35,6 +36,8 @@ class KeywordIndex:
     _instance: "KeywordIndex | None" = None
     _lock_guard = threading.Lock()
     _build_lock: asyncio.Lock | None = None
+    _build_failed_until: float = 0.0  # 构建失败后的冷却截止（monotonic）
+    _FAILURE_COOLDOWN_S = 30.0
 
     def __init__(self, chunk_ids: list[str], contents: list[str], metas: list[dict]):
         from rank_bm25 import BM25Okapi  # 局部 import：未装时由 get() 捕获 -> keyword 路跳过
@@ -48,13 +51,20 @@ class KeywordIndex:
     async def get(cls) -> "KeywordIndex | None":
         if cls._instance is not None:
             return cls._instance
+        # 构建失败后冷却窗口内直接返回 None：避免并发 fan-out 的多资源各自重试慢构建
+        # （qdrant 不可用时每次 scroll 超时，未缓存失败会让 N 个资源串行各等一遍 → docs/19 §6）。
+        if time.monotonic() < cls._build_failed_until:
+            return None
         lock = cls._get_build_lock()
         async with lock:
             if cls._instance is not None:
                 return cls._instance
+            if time.monotonic() < cls._build_failed_until:
+                return None
             try:
                 cls._instance = await cls._build_from_qdrant()
             except Exception as e:  # qdrant 连不上 / rank_bm25 缺 / 空库
+                cls._build_failed_until = time.monotonic() + cls._FAILURE_COOLDOWN_S
                 logger.warning("keyword index build failed: %s", e)
                 return None
             return cls._instance
@@ -132,6 +142,8 @@ class KeywordIndex:
     @classmethod
     def invalidate(cls) -> None:
         cls._instance = None
+        cls._build_failed_until = 0.0  # 重建机会：ingest 后立即可重试
+        cls._build_lock = None  # 释放旧锁（单测每用例新事件循环；生产 ingest 后重建无碍）
 
 
 async def _collection_ready(qdrant, collection: str, timeout_s: float) -> bool:

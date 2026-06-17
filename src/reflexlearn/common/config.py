@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     openai_compat_api_key: str = ""      # OpenAI-compatible 中转站 key（如 timicc）
     openai_compat_base_url: str = ""     # 中转站 base URL；按服务要求填 https://... 或 https://.../v1
     openai_compat_model: str = ""        # 中转站模型名，如 gpt-5.5；网关会规范化为 openai/{model}
+    openai_compat_cheap_model: str = ""  # 中转站「便宜档」模型名（PERF-B）：评判类任务(质检/judge/反思)走它降时延；空=全用主模型(零回归)
     openai_compat_wire_api: str = "chat_completions"  # chat_completions 或 responses（timicc 走 /responses）
     llm_request_timeout_s: float = 30.0  # 单次 LLM 外呼总超时（read/write）；中转站无响应时快速降级
     llm_connect_timeout_s: float = 5.0   # 连接超时单独设短：中转站 SYN 黑洞时 5s 快速降级，不等满总超时（PERF-C）
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
     enable_graph_retrieval: bool = False
     enable_kafka: bool = False
     enable_rag: bool = True
+    enable_model_warmup: bool = True     # PERF-D：启动后台预热 bge embedding(+reranker)，消首请求 2GB 懒加载卡顿；仅 enable_rag 时生效
 
     # —— 三级记忆 / 多轮会话（6.2）——
     enable_multi_turn: bool = True       # kill-switch：False 即彻底退化单轮（跳过 Redis load/persist）
@@ -77,6 +79,7 @@ class Settings(BaseSettings):
     eval_skip_path_plan: bool = False    # M5 资源质量评测跳过终态路径规划，避免无关 LLM 外呼拖慢
     enable_llm_planner: bool = True      # False 时 Planner 走规则规划，用于评测隔离资源生成变量
     enable_llm_generation: bool = True   # False 时生成 Skill 走离线降级，LLM key 仍可留给元认知/Judge
+    enable_llm_streaming: bool = True    # 生成 Skill 优先走 complete_stream() 逐 token 推增量（PERF-A）；kill-switch 回退一次性
     eval_judge_max_resources: int = 0    # 评测时最多送 Judge 的资源数；0 表示不限制
     enable_metacognition: bool = False   # 元认知 self-refine 默认关，开启后才插入主链路
     max_self_refine: int = 1             # 单轮最多自我改进重试次数，防无限循环

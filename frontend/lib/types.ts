@@ -11,6 +11,14 @@ export interface ResourceCard {
   type: ResourceType;
   task_id: string;
   content: string;
+  streaming?: boolean; // 流式增量进行中（PERF-A），末帧 resource_card 落定后转 false
+}
+
+export interface ResourceDelta {
+  task_id: string;
+  type?: ResourceType;
+  delta: string;
+  reset?: boolean; // 新一轮生成开始：清空该 task 已累积的增量
 }
 
 export interface AgentStep {

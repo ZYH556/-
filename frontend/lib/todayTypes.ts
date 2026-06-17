@@ -36,6 +36,7 @@ export interface TodayPathResource {
   resource_id: string;
   title: string;
   type?: string;
+  pinned?: boolean;
 }
 
 export interface TodayLearningPathNode {

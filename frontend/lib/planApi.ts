@@ -40,3 +40,15 @@ export function insertRemedialItem(
     }),
   });
 }
+
+/** 把资源显式绑定到路径节点；resourceId 传空串则解绑。 */
+export function pinResourceToItem(
+  token: string,
+  itemId: number,
+  resourceId: string,
+): Promise<PathOpResult> {
+  return apiJson<PathOpResult>(`${API_BASE}/plan/items/${itemId}/resource`, token, {
+    method: "PUT",
+    body: JSON.stringify({ resource_id: resourceId }),
+  });
+}

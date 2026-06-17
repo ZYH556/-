@@ -143,3 +143,34 @@ async def test_keyword_index_concurrent_get_does_not_block_event_loop(monkeypatc
 
     assert first is second
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_keyword_index_caches_build_failure_within_cooldown(monkeypatch):
+    """构建失败后进入冷却：并发 fan-out 的多资源不再各自重试慢构建（docs/19 §6 串行根因之一）。"""
+    calls = 0
+
+    async def build_fail():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        raise RuntimeError("qdrant down")
+
+    monkeypatch.setattr(KeywordIndex, "_build_from_qdrant", classmethod(lambda cls: build_fail()))
+
+    # 并发 4 次 get：仅 1 次真正进构建，其余命中冷却直返 None
+    results = await asyncio.wait_for(
+        asyncio.gather(*[KeywordIndex.get() for _ in range(4)]),
+        timeout=1,
+    )
+    assert all(r is None for r in results)
+    assert calls == 1
+
+    # 冷却窗口内再 get 仍直返 None、不重试
+    assert await KeywordIndex.get() is None
+    assert calls == 1
+
+    # invalidate 后清除冷却，可重试
+    KeywordIndex.invalidate()
+    assert await KeywordIndex.get() is None
+    assert calls == 2
