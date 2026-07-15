@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, FileQuestion, FolderOpen, NotebookPen } from "lucide-react";
 
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { ResourceStudyActions } from "@/components/resource/ResourceStudyActions";
 import { PinToPathPanel } from "@/components/resource/PinToPathPanel";
 import { ResourceEmbed } from "@/components/resource/ResourceEmbed";
@@ -85,6 +86,8 @@ export default function ResourceDetailPage({
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       <BackLink />
+
+      <AgentProcessPanel page="resource-detail" title="资源详情 Agent 调用过程" />
 
       <header className="ws-card ws-rise p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">

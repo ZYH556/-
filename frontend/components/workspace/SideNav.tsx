@@ -3,14 +3,19 @@
 import Link from "next/link";
 import {
   BookMarked,
+  Bot,
+  BrainCircuit,
+  ChartNoAxesColumnIncreasing,
   LayoutGrid,
   Library,
   LogOut,
   MessageSquareText,
   NotebookPen,
+  PlayCircle,
   Route,
   Sprout,
   Sunrise,
+  UserRoundCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,6 +25,12 @@ import type { CurrentUser } from "@/lib/types";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
   today: Sunrise,
+  profile: BrainCircuit,
+  industry: ChartNoAxesColumnIncreasing,
+  gap: ChartNoAxesColumnIncreasing,
+  coach: Bot,
+  mentors: UserRoundCheck,
+  courses: PlayCircle,
   spaces: LayoutGrid,
   chat: MessageSquareText,
   plan: Route,
@@ -31,6 +42,12 @@ const NAV_ICONS: Record<string, LucideIcon> = {
 
 const SHORT_LABELS: Record<string, string> = {
   today: "今日",
+  profile: "画像",
+  industry: "行业",
+  gap: "差距",
+  coach: "辅导",
+  mentors: "匹配",
+  courses: "课程",
   spaces: "目标",
   chat: "导师",
   plan: "路径",

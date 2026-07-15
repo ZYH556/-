@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { NotebookPen, Plus, X } from "lucide-react";
 
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { EmptyState, PageHeader, Tag, WsButton, WsCard } from "@/components/workspace";
 import { apiJson, getErrorMessage } from "@/lib/apiClient";
 import { useAuthSession } from "@/lib/authContext";
@@ -136,6 +137,8 @@ export default function MistakesPage() {
           </WsButton>
         }
       />
+
+      <AgentProcessPanel page="mistakes" />
 
       {formOpen ? (
         <MistakeForm

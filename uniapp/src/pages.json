@@ -1,0 +1,84 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^rl-(.*)": "@/components/rl-$1/rl-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/today/today",
+      "style": {
+        "navigationBarTitleText": "今日学习",
+        "navigationBarBackgroundColor": "#f7f5f0",
+        "navigationBarTextStyle": "black"
+      }
+    },
+    {
+      "path": "pages/knowledge/knowledge",
+      "style": {
+        "navigationBarTitleText": "知识库",
+        "navigationBarBackgroundColor": "#f7f5f0",
+        "navigationBarTextStyle": "black"
+      }
+    },
+    {
+      "path": "pages/coach/coach",
+      "style": {
+        "navigationBarTitleText": "AI 辅导",
+        "navigationBarBackgroundColor": "#f7f5f0",
+        "navigationBarTextStyle": "black"
+      }
+    },
+    {
+      "path": "pages/course/course",
+      "style": {
+        "navigationBarTitleText": "精品课程",
+        "navigationBarBackgroundColor": "#f7f5f0",
+        "navigationBarTextStyle": "black"
+      }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "学习画像",
+        "navigationBarBackgroundColor": "#f7f5f0",
+        "navigationBarTextStyle": "black"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "ReflexLearn",
+    "navigationBarBackgroundColor": "#f7f5f0",
+    "backgroundColor": "#f7f5f0"
+  },
+  "tabBar": {
+    "color": "#64748b",
+    "selectedColor": "#051a24",
+    "backgroundColor": "#fdfcf8",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/today/today",
+        "text": "今日"
+      },
+      {
+        "pagePath": "pages/knowledge/knowledge",
+        "text": "知识库"
+      },
+      {
+        "pagePath": "pages/coach/coach",
+        "text": "辅导"
+      },
+      {
+        "pagePath": "pages/course/course",
+        "text": "课程"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "画像"
+      }
+    ]
+  }
+}

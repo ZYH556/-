@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PlanActionPanel } from "@/components/plan/PlanActionPanel";
 import { PlanTimeline } from "@/components/plan/PlanTimeline";
 import { ProgressRing } from "@/components/profile/ProfileGauges";
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { PageHeader, Tag } from "@/components/workspace";
 import { useAuthSession } from "@/lib/authContext";
 import { fallbackToday } from "@/lib/todayFallback";
@@ -44,6 +45,8 @@ export default function PlanPage() {
         title="学习路径"
         description="把目标拆成可推进的节点：先看当前学习路径，再根据错题、画像和资源完成情况调整顺序。"
       />
+
+      <AgentProcessPanel page="plan" />
 
       <section className="ws-card ws-rise p-6">
         <header className="flex flex-wrap items-start justify-between gap-4">

@@ -12,6 +12,14 @@ const nextConfig = {
         source: "/api/:path*",
         destination: `${backend}/api/:path*`,
       },
+      {
+        source: "/vmss/:path*",
+        destination: "http://vms.cn-huadong-1.xf-yun.com/:path*",
+      },
+      {
+        source: "/individuation/:path*",
+        destination: "http://evo-hu.xf-yun.com/individuation/:path*",
+      },
     ];
   },
 };

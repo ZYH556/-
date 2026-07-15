@@ -5,6 +5,7 @@ import { Download, FileDown, Filter, ShieldCheck, Sparkles, Sprout } from "lucid
 
 import { GrowthEvidence } from "@/components/growth/GrowthEvidence";
 import { GrowthSummary } from "@/components/growth/GrowthSummary";
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import {
   EmptyState,
   PageHeader,
@@ -120,6 +121,8 @@ export default function GrowthPage() {
           </WsButton>
         }
       />
+
+      <AgentProcessPanel page="growth" />
 
       {error ? (
         <p className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

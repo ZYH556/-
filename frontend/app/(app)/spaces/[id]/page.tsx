@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, FolderOpen } from "lucide-react";
 
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { SpaceHero } from "@/components/spaces/SpaceHero";
 import { SpaceNextAction } from "@/components/spaces/SpaceNextAction";
 import { SpacePath } from "@/components/spaces/SpacePath";
@@ -77,6 +78,8 @@ export default function SpaceDetailPage({
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-col gap-8">
       <SpaceHero detail={detail} />
+
+      <AgentProcessPanel page="spaces" title="学习空间 Agent 调用过程" />
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <SpacePath steps={detail.steps} />

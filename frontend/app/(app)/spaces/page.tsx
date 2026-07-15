@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, FolderOpen, LayoutGrid, Plus } from "lucide-react";
 
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { EmptyState, PageHeader, Tag, WsButton, type TagTone } from "@/components/workspace";
 import { apiJson, getErrorMessage } from "@/lib/apiClient";
 import { useAuthSession } from "@/lib/authContext";
@@ -71,6 +72,8 @@ export default function SpacesPage() {
           </WsButton>
         }
       />
+
+      <AgentProcessPanel page="spaces" />
 
       {creating ? (
         <div className="ws-card flex flex-wrap items-center gap-3 p-4">

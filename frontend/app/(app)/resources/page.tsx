@@ -7,6 +7,7 @@ import { Library, MessageSquareText } from "lucide-react";
 import { ResourceCandidates } from "@/components/resource/ResourceCandidates";
 import { ResourceDiscovery } from "@/components/resource/ResourceDiscovery";
 import { ResourceList } from "@/components/resource/ResourceList";
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { viewForResource } from "@/components/resource/resourceView";
 import { EmptyState, PageHeader } from "@/components/workspace";
 import { apiJson, getErrorMessage } from "@/lib/apiClient";
@@ -103,6 +104,8 @@ export default function ResourcesPage() {
         title="学习资源库"
         description="按当前画像推荐资源，再按学习目标搜索外部视频、公开课程、官方文档和 AI 生成材料。"
       />
+
+      <AgentProcessPanel page="resources" />
 
       <ResourceDiscovery profile={profile} today={today} resources={items} />
 

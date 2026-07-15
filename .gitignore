@@ -17,6 +17,15 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/pnpm-debug.log*
 
+# UniApp
+uniapp/node_modules/
+uniapp/dist/
+uniapp/unpackage/
+uniapp/npm-debug.log*
+uniapp/yarn-debug.log*
+uniapp/yarn-error.log*
+uniapp/pnpm-debug.log*
+
 # Local environment and secrets
 .env
 .env.*

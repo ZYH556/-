@@ -66,9 +66,17 @@ def _settings(settings: Settings | None) -> Settings:
     return settings or get_settings()
 
 
+INSECURE_AUTH_SECRETS = {
+    "dev-only-change-me-reflexlearn-auth-secret",
+    "change-me-to-a-long-random-secret",
+}
+
+
 def _assert_secret(settings: Settings) -> None:
-    default = "dev-only-change-me-reflexlearn-auth-secret"
-    if settings.app_env.lower() == "production" and settings.auth_secret_key == default:
+    if (
+        settings.app_env.lower() == "production"
+        and settings.auth_secret_key in INSECURE_AUTH_SECRETS
+    ):
         raise AuthError("auth secret must be changed in production")
     if len(settings.auth_secret_key) < 32:
         raise AuthError("auth secret is too short")

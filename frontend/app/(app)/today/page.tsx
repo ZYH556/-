@@ -13,6 +13,8 @@ import { RecommendedResources } from "@/components/today/RecommendedResources";
 import { TutorPrompt } from "@/components/today/TutorPrompt";
 import { QuickActions } from "@/components/today/QuickActions";
 import { ProfileSignals, ReviewQueue } from "@/components/today/LearningSignals";
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
+import { OneSentenceVideoPush } from "@/components/learning-demo/OneSentenceVideoPush";
 
 const taskSecondaryActions = [
   { label: "让 AI 导师解释", href: "/chat", icon: "explain" },
@@ -69,6 +71,8 @@ export default function TodayPage() {
         progress={today.progress}
       />
 
+      <AgentProcessPanel page="today" />
+
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.52fr)_minmax(300px,0.78fr)]">
         <div className="space-y-8">
           <TodayMainTask
@@ -83,6 +87,7 @@ export default function TodayPage() {
             recommendation={today.pathRecommendation}
           />
           <RecommendedResources resources={today.resources} />
+          <OneSentenceVideoPush compact />
         </div>
 
         <aside className="space-y-6">

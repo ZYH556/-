@@ -6,6 +6,7 @@ import { MessageSquareText, RotateCcw } from "lucide-react";
 
 import { ProfileEvidence } from "@/components/profile/ProfileEvidence";
 import { ProfileOverview } from "@/components/profile/ProfileOverview";
+import { AgentProcessPanel } from "@/components/agents/AgentProcessPanel";
 import { PageHeader } from "@/components/workspace";
 import { getErrorMessage } from "@/lib/apiClient";
 import { useAuthSession } from "@/lib/authContext";
@@ -68,6 +69,8 @@ export default function ProfilePage() {
           画像暂时无法同步：{error}
         </p>
       ) : null}
+
+      <AgentProcessPanel page="profile" />
 
       {loading ? <ProfileSkeleton /> : profile ? <ProfileContent profile={profile} /> : null}
     </section>
